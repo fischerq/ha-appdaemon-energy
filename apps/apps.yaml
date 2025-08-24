@@ -1,0 +1,6 @@
+# A unique name for this app instance. This can be anything you like.
+hello_world_app:
+  # 'module' points to the Python filename without the .py extension.
+  module: hello_world
+  # 'class' points to the class name inside that Python file.
+  class: HelloWorld
