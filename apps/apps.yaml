@@ -1,6 +1,21 @@
-# A unique name for this app instance. This can be anything you like.
-solalindenstein_energy_app:
-  # 'module' points to the Python filename without the .py extension.
-  module: solalindenstein_energy_manager
-  # 'class' points to the class name inside that Python file.
-  class: SolalindensteinEnergyManager
+energy_manager:
+  module: energy_manager
+  class: EnergyController
+
+  # Input sensors the controller reads from
+  sensors:
+    grid_power: sensor.grid_power
+    battery_soc: sensor.battery_soc
+    heating_demand_boolean: input_boolean.heating_demand
+
+  # Configuration for the first device handler
+  miner_heater:
+    switch_entity: switch.bitcoin_miner
+    power_draw: 2000
+    min_battery_soc: 95
+  
+  # Entities the controller will create/publish to
+  publish_entities:
+    pv_surplus: sensor.controller_pv_surplus
+    battery_soc: sensor.controller_battery_soc
+    heating_demand: binary_sensor.controller_heating_demand
