@@ -8,6 +8,8 @@ class SystemState:
     pv_surplus: float
     battery_soc: float
     is_heating_needed: bool
+    battery_power: float
+    solar_production: float
     last_updated: str
 
 class MinerHeaterHandler:
@@ -75,6 +77,14 @@ class EnergyController(hass.Hass):
         """The main control loop."""
         self.log("Running control loop...")
         state = self._get_system_state()
+
+        if state is None:
+            self.log("Could not retrieve system state. Skipping control loop.")
+            # Set controller_running to off if the loop fails
+            publish_entities = self.args["publish_entities"]
+            self.set_state(publish_entities["controller_running"], state="off")
+            return
+
         self._publish_state_to_ha(state)
 
         for handler in self.device_handlers:
@@ -88,9 +98,18 @@ class EnergyController(hass.Hass):
         grid_power_sensor = self.args["sensors"]["grid_power"]
         battery_soc_sensor = self.args["sensors"]["battery_soc"]
         heating_demand_sensor = self.args["sensors"]["heating_demand_boolean"]
+        battery_power_sensor = self.args["sensors"]["battery_power"]
+        solar_production_sensor = self.args["sensors"]["solar_production"]
 
-        grid_power = float(self.get_state(grid_power_sensor))
-        battery_soc = float(self.get_state(battery_soc_sensor))
+        try:
+            grid_power = float(self.get_state(grid_power_sensor))
+            battery_soc = float(self.get_state(battery_soc_sensor))
+            battery_power = float(self.get_state(battery_power_sensor))
+            solar_production = float(self.get_state(solar_production_sensor))
+        except (TypeError, ValueError) as e:
+            self.error(f"Error retrieving sensor data: {e}")
+            return None
+
         is_heating_needed = self.get_state(heating_demand_sensor) == "on"
 
         # Surplus is negative grid power
@@ -100,6 +119,8 @@ class EnergyController(hass.Hass):
             pv_surplus=pv_surplus,
             battery_soc=battery_soc,
             is_heating_needed=is_heating_needed,
+            battery_power=battery_power,
+            solar_production=solar_production,
             last_updated=datetime.now(timezone.utc).isoformat()
         )
         self.log(f"Current state: {state}")
@@ -119,5 +140,15 @@ class EnergyController(hass.Hass):
         
         # Publish Heating Demand
         self.set_state(publish_entities["heating_demand"], state="on" if state.is_heating_needed else "off")
+
+        # Publish Battery Power
+        self.set_state(publish_entities["battery_power"], state=round(state.battery_power, 2), attributes={"unit_of_measurement": "W"})
+
+        # Publish Solar Production
+        self.set_state(publish_entities["solar_production"], state=round(state.solar_production, 2), attributes={"unit_of_measurement": "W"})
+
+        # Publish Controller Status
+        self.set_state(publish_entities["controller_running"], state="on")
+        self.set_state(publish_entities["last_successful_run"], state=state.last_updated)
 
         self.log("Published controller state to Home Assistant.")

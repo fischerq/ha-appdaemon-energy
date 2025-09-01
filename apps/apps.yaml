@@ -5,17 +5,23 @@ energy_manager:
   # Input sensors the controller reads from
   sensors:
     grid_power: sensor.grid_power
-    battery_soc: sensor.battery_soc
+    battery_soc: sensor.victron_battery_soc
     heating_demand_boolean: input_boolean.heating_demand
+    battery_power: sensor.victron_system_battery_power
+    solar_production: sensor.envoy_122327001496_aktuelle_stromproduktion
 
   # Configuration for the first device handler
   miner_heater:
     switch_entity: switch.bitcoin_miner
     power_draw: 2000
     min_battery_soc: 95
-  
+
   # Entities the controller will create/publish to
   publish_entities:
     pv_surplus: sensor.controller_pv_surplus
     battery_soc: sensor.controller_battery_soc
     heating_demand: binary_sensor.controller_heating_demand
+    battery_power: sensor.controller_battery_power
+    solar_production: sensor.controller_solar_production
+    controller_running: binary_sensor.controller_running
+    last_successful_run: sensor.controller_last_successful_run
