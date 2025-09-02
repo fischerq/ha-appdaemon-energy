@@ -17,6 +17,10 @@ class EnergyController(hass.Hass):
             self.log(f"Creating dry run switch: {self.dry_run_switch_entity}")
             self.set_state(self.dry_run_switch_entity, state="off", attributes={"friendly_name": "Energy Manager Dry Run"})
 
+        if not self._validate_sensors():
+            self.error("Aborting initialization due to bad sensor configuration.")
+            return
+
         self.device_handlers = []
 
         # Instantiate handlers based on configuration
@@ -30,6 +34,20 @@ class EnergyController(hass.Hass):
         # Schedule the main control loop
         self.run_every(self.control_loop, "now", 60)
         self.log("Control loop scheduled to run every minute.")
+
+    def _validate_sensors(self):
+        """Validates that all required sensors are available."""
+        sensors = self.args.get("sensors", {})
+        for sensor_name, sensor_entity in sensors.items():
+            try:
+                if self.get_state(sensor_entity) is None:
+                    self.error(f"Sensor '{sensor_name}' ({sensor_entity}) not found.")
+                    return False
+            except Exception as e:
+                self.error(f"Error checking sensor '{sensor_name}' ({sensor_entity}): {e}")
+                return False
+        self.log("All sensors found.")
+        return True
 
     def control_loop(self, kwargs):
         """The main control loop."""
@@ -47,7 +65,7 @@ class EnergyController(hass.Hass):
             self.set_state(publish_entities["controller_running"], state="off")
             return
 
-        self._publish_state_to_ha(state)
+        state.publish_to_ha(self, self.args["publish_entities"])
 
         for handler in self.device_handlers:
             handler.evaluate_and_act(state, is_dry_run)
@@ -111,28 +129,3 @@ class EnergyController(hass.Hass):
         )
         self.log(f"Current state: {state}")
         return state
-
-    def _publish_state_to_ha(self, state: SystemState):
-        """
-        Publishes the controller's internal state to Home Assistant sensors.
-        """
-        publish_entities = self.args["publish_entities"]
-
-        self.set_state(publish_entities["solar_surplus"], state=round(state.solar_surplus, 2), attributes={"unit_of_measurement": "W"})
-        self.set_state(publish_entities["total_surplus"], state=round(state.total_surplus, 2), attributes={"unit_of_measurement": "W"})
-        self.set_state(publish_entities["chp_production"], state=round(state.chp_production, 2), attributes={"unit_of_measurement": "W"})
-        self.set_state(publish_entities["battery_soc"], state=round(state.battery_soc, 2), attributes={"unit_of_measurement": "%"})
-        self.set_state(publish_entities["battery_power"], state=round(state.battery_power, 2), attributes={"unit_of_measurement": "W"})
-        self.set_state(publish_entities["battery_charging"], state=round(state.battery_charging, 2), attributes={"unit_of_measurement": "W"})
-        self.set_state(publish_entities["battery_discharging"], state=round(state.battery_discharging, 2), attributes={"unit_of_measurement": "W"})
-        self.set_state(publish_entities["grid_power"], state=round(state.grid_power, 2), attributes={"unit_of_measurement": "W"})
-        self.set_state(publish_entities["grid_import"], state=round(state.grid_import, 2), attributes={"unit_of_measurement": "W"})
-        self.set_state(publish_entities["grid_export"], state=round(state.grid_export, 2), attributes={"unit_of_measurement": "W"})
-        self.set_state(publish_entities["solar_production"], state=round(state.solar_production, 2), attributes={"unit_of_measurement": "W"})
-        if "miner_consumption" in publish_entities:
-          self.set_state(publish_entities["miner_consumption"], state=round(state.miner_consumption, 2), attributes={"unit_of_measurement": "W"})
-
-        self.set_state(publish_entities["controller_running"], state="on")
-        self.set_state(publish_entities["last_successful_run"], state=state.last_updated)
-
-        self.log("Published controller state to Home Assistant.")
