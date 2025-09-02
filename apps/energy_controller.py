@@ -1,65 +1,7 @@
-import math
 import appdaemon.plugins.hass.hassapi as hass
-from dataclasses import dataclass
 from datetime import datetime, timezone
-
-@dataclass
-class SystemState:
-    """A dataclass to act as a data container for system state."""
-    solar_surplus: float
-    total_surplus: float
-    chp_production: float
-    battery_soc: float
-    battery_power: float
-    battery_charging: float
-    battery_discharging: float
-    grid_power: float
-    grid_import: float
-    grid_export: float
-    solar_production: float
-    miner_consumption: float
-    last_updated: str
-
-class MinerHeaterHandler:
-    """A class to contain all logic for controlling the miner."""
-
-    def __init__(self, app, config):
-        """
-        Initializes the handler.
-        Args:
-            app: The AppDaemon app instance.
-            config: The configuration dictionary for this handler.
-        """
-        self.app = app
-        self.config = config
-        self.entity_id = self.config.get("switch_entity")
-        self.power_limit_entity = self.config.get("power_limit_entity")
-
-    def evaluate_and_act(self, state: SystemState):
-        """
-        Main decision-making method to control the miner.
-        Args:
-            state: The current system state.
-        """
-        is_on = self.app.get_state(self.entity_id) == "on"
-
-        # Turn on if there is at least 2kW total surplus
-        if state.total_surplus >= 2000:
-            if not is_on:
-                self.app.log(f"Turning on miner heater ({self.entity_id}) due to total surplus.")
-                self.app.turn_on(self.entity_id)
-
-            # Increase the limit in 1kW increments up to 6kW
-            power_limit = min(6000, 2000 + 1000 * math.floor((state.total_surplus - 2000) / 1000))
-            self.app.log(f"Setting miner power limit to {power_limit} W.")
-            self.app.call_service("number/set_value", entity_id=self.power_limit_entity, value=power_limit)
-
-        # Turn off if there is less than 2kW surplus
-        else:
-            if is_on:
-                self.app.log(f"Turning off miner heater ({self.entity_id}) due to insufficient total surplus.")
-                self.app.turn_off(self.entity_id)
-
+from system_state import SystemState
+from miner_heater_handler import MinerHeaterHandler
 
 class EnergyController(hass.Hass):
     """The main AppDaemon class for orchestrating energy devices."""
@@ -68,6 +10,13 @@ class EnergyController(hass.Hass):
         """Initializes the controller, loads handlers, and schedules the loop."""
         self.log("Hello from the Solalindenstein AppDaemon Energy Manager!")
         self.log("Initializing Modular Energy Controller.")
+
+        # Create dry run switch if it doesn't exist
+        self.dry_run_switch_entity = self.args.get("dry_run_switch_entity")
+        if self.dry_run_switch_entity and self.get_state(self.dry_run_switch_entity) is None:
+            self.log(f"Creating dry run switch: {self.dry_run_switch_entity}")
+            self.set_state(self.dry_run_switch_entity, state="off", attributes={"friendly_name": "Energy Manager Dry Run"})
+
         self.device_handlers = []
 
         # Instantiate handlers based on configuration
@@ -84,6 +33,10 @@ class EnergyController(hass.Hass):
 
     def control_loop(self, kwargs):
         """The main control loop."""
+        is_dry_run = self.dry_run_switch_entity and self.get_state(self.dry_run_switch_entity) == "on"
+        if is_dry_run:
+            self.log("Running in dry-run mode.")
+        
         self.log("Running control loop...")
         state = self._get_system_state()
 
@@ -97,7 +50,7 @@ class EnergyController(hass.Hass):
         self._publish_state_to_ha(state)
 
         for handler in self.device_handlers:
-            handler.evaluate_and_act(state)
+            handler.evaluate_and_act(state, is_dry_run)
         self.log("Control loop finished.")
 
     def _get_system_state(self) -> SystemState:

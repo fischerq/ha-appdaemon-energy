@@ -1,6 +1,7 @@
 energy_manager:
-  module: energy_manager
+  module: energy_controller
   class: EnergyController
+  dry_run_switch_entity: input_boolean.energy_manager_dry_run
 
   # Input sensors the controller reads from
   sensors:
@@ -15,6 +16,9 @@ energy_manager:
   miner_heater:
     switch_entity: switch.deiner_active
     power_limit_entity: number.deiner_power_limit
+    activation_threshold: 2000
+    max_power: 6000
+    power_step: 1000
 
   # Entities the controller will create/publish to
   publish_entities:
