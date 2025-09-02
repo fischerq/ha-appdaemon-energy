@@ -37,7 +37,13 @@ class SystemState:
                 if state is None:
                     app.error(f"Sensor '{sensor_name}' ({entity_id}) does not exist.")
                     return False
-                float(state)
+                if sensor_name == "miner_consumption":
+                    if state == "Unknown":
+                        continue
+                    else:
+                        float(state) 
+                else:
+                    float(state)
             except (TypeError, ValueError):
                 app.error(f"Sensor '{sensor_name}' ({entity_id}) has a non-numeric state: {state}")
                 return False
@@ -65,11 +71,17 @@ class SystemState:
             battery_soc = float(app.get_state(battery_soc_sensor))
             battery_power = float(app.get_state(battery_power_sensor))
             solar_production = float(app.get_state(solar_production_sensor)) * 1000 # convert kW to W
-            miner_consumption = float(app.get_state(miner_consumption_sensor))
             chp_production = float(app.get_state(chp_production_sensor))
+            miner_consumption_value = app.get_state(miner_consumption_sensor)
+            if miner_consumption_value == "Unknown":
+                miner_consumption = 0
+            else:
+                miner_consumption = float(miner_consumption_value)
         except (TypeError, ValueError) as e:
             app.error(f"Error retrieving sensor data: {e}")
             return None
+        try:
+        
         # Positive grid power is drawing from grid, negative is sending power to grid
         grid_import = max(0, grid_power)
         grid_export = max(0, -grid_power)
