@@ -1,3 +1,4 @@
+import appdaemon.plugins.hass.hassapi as hass
 from dataclasses import dataclass, asdict
 from datetime import datetime
 
