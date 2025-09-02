@@ -38,7 +38,7 @@ class SystemState:
                     app.error(f"Sensor '{sensor_name}' ({entity_id}) does not exist.")
                     return False
                 if sensor_name == "miner_consumption":
-                    if state == "Unknown":
+                    if state == "unknown":
                         continue
                     else:
                         float(state) 
@@ -73,7 +73,7 @@ class SystemState:
             solar_production = float(app.get_state(solar_production_sensor)) * 1000 # convert kW to W
             chp_production = float(app.get_state(chp_production_sensor))
             miner_consumption_value = app.get_state(miner_consumption_sensor)
-            if miner_consumption_value == "Unknown":
+            if miner_consumption_value == "unknown":
                 miner_consumption = 0
             else:
                 miner_consumption = float(miner_consumption_value)
