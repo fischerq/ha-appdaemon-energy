@@ -1,3 +1,4 @@
+import math
 import appdaemon.plugins.hass.hassapi as hass
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -5,11 +6,18 @@ from datetime import datetime, timezone
 @dataclass
 class SystemState:
     """A dataclass to act as a data container for system state."""
-    pv_surplus: float
+    solar_surplus: float
+    total_surplus: float
+    chp_production: float
     battery_soc: float
-    is_heating_needed: bool
     battery_power: float
+    battery_charging: float
+    battery_discharging: float
+    grid_power: float
+    grid_import: float
+    grid_export: float
     solar_production: float
+    miner_consumption: float
     last_updated: str
 
 class MinerHeaterHandler:
@@ -25,8 +33,7 @@ class MinerHeaterHandler:
         self.app = app
         self.config = config
         self.entity_id = self.config.get("switch_entity")
-        self.power_draw = self.config.get("power_draw")
-        self.min_soc = self.config.get("min_battery_soc")
+        self.power_limit_entity = self.config.get("power_limit_entity")
 
     def evaluate_and_act(self, state: SystemState):
         """
@@ -36,20 +43,22 @@ class MinerHeaterHandler:
         """
         is_on = self.app.get_state(self.entity_id) == "on"
 
-        # Start Logic
-        if not is_on and \
-           state.is_heating_needed and \
-           state.pv_surplus > self.power_draw and \
-           state.battery_soc >= self.min_soc:
-            self.app.log(f"Turning on miner heater ({self.entity_id}) due to heating need and PV surplus.")
-            self.app.turn_on(self.entity_id)
+        # Turn on if there is at least 2kW total surplus
+        if state.total_surplus >= 2000:
+            if not is_on:
+                self.app.log(f"Turning on miner heater ({self.entity_id}) due to total surplus.")
+                self.app.turn_on(self.entity_id)
 
-        # Stop Logic
-        elif is_on and \
-             (not state.is_heating_needed or \
-              state.pv_surplus < self.power_draw * 0.8):
-            self.app.log(f"Turning off miner heater ({self.entity_id}). Heating needed: {state.is_heating_needed}, PV Surplus: {state.pv_surplus}")
-            self.app.turn_off(self.entity_id)
+            # Increase the limit in 1kW increments up to 6kW
+            power_limit = min(6000, 2000 + 1000 * math.floor((state.total_surplus - 2000) / 1000))
+            self.app.log(f"Setting miner power limit to {power_limit} W.")
+            self.app.call_service("number/set_value", entity_id=self.power_limit_entity, value=power_limit)
+
+        # Turn off if there is less than 2kW surplus
+        else:
+            if is_on:
+                self.app.log(f"Turning off miner heater ({self.entity_id}) due to insufficient total surplus.")
+                self.app.turn_off(self.entity_id)
 
 
 class EnergyController(hass.Hass):
@@ -97,30 +106,54 @@ class EnergyController(hass.Hass):
         """
         grid_power_sensor = self.args["sensors"]["grid_power"]
         battery_soc_sensor = self.args["sensors"]["battery_soc"]
-        heating_demand_sensor = self.args["sensors"]["heating_demand_boolean"]
         battery_power_sensor = self.args["sensors"]["battery_power"]
         solar_production_sensor = self.args["sensors"]["solar_production"]
+        miner_consumption_sensor = self.args["sensors"]["miner_consumption"]
+        chp_production_sensor = self.args["sensors"]["chp_production"]
 
         try:
             grid_power = float(self.get_state(grid_power_sensor))
             battery_soc = float(self.get_state(battery_soc_sensor))
             battery_power = float(self.get_state(battery_power_sensor))
-            solar_production = float(self.get_state(solar_production_sensor))
+            solar_production = float(self.get_state(solar_production_sensor)) * 1000 # convert kW to W
+            miner_consumption = float(self.get_state(miner_consumption_sensor))
+            chp_production = float(self.get_state(chp_production_sensor))
         except (TypeError, ValueError) as e:
             self.error(f"Error retrieving sensor data: {e}")
             return None
 
-        is_heating_needed = self.get_state(heating_demand_sensor) == "on"
+        # Positive grid power is drawing from grid, negative is sending power to grid
+        grid_import = max(0, grid_power)
+        grid_export = max(0, -grid_power)
 
-        # Surplus is negative grid power
-        pv_surplus = -grid_power
+        # Positive battery power means the battery is charging, negative is supplying power to house
+        battery_charging = max(0, battery_power)
+        battery_discharging = max(0, -battery_power)
+
+        # Solar surplus is the sum of power being sent to the grid and power being used to charge the battery
+        solar_surplus = grid_export + battery_charging
+
+        # Validate that solar surplus is not greater than solar production
+        if solar_surplus > solar_production:
+            self.warning(f"Solar surplus ({solar_surplus}W) is greater than solar production ({solar_production}W). Setting surplus to production value.")
+            solar_surplus = solar_production
+
+        # Total surplus is the sum of solar surplus and CHP production
+        total_surplus = solar_surplus + chp_production
 
         state = SystemState(
-            pv_surplus=pv_surplus,
+            solar_surplus=solar_surplus,
+            total_surplus=total_surplus,
+            chp_production=chp_production,
             battery_soc=battery_soc,
-            is_heating_needed=is_heating_needed,
             battery_power=battery_power,
+            battery_charging=battery_charging,
+            battery_discharging=battery_discharging,
+            grid_power=grid_power,
+            grid_import=grid_import,
+            grid_export=grid_export,
             solar_production=solar_production,
+            miner_consumption=miner_consumption,
             last_updated=datetime.now(timezone.utc).isoformat()
         )
         self.log(f"Current state: {state}")
@@ -132,22 +165,20 @@ class EnergyController(hass.Hass):
         """
         publish_entities = self.args["publish_entities"]
 
-        # Publish PV surplus
-        self.set_state(publish_entities["pv_surplus"], state=round(state.pv_surplus, 2), attributes={"unit_of_measurement": "W"})
-        
-        # Publish Battery SOC
+        self.set_state(publish_entities["solar_surplus"], state=round(state.solar_surplus, 2), attributes={"unit_of_measurement": "W"})
+        self.set_state(publish_entities["total_surplus"], state=round(state.total_surplus, 2), attributes={"unit_of_measurement": "W"})
+        self.set_state(publish_entities["chp_production"], state=round(state.chp_production, 2), attributes={"unit_of_measurement": "W"})
         self.set_state(publish_entities["battery_soc"], state=round(state.battery_soc, 2), attributes={"unit_of_measurement": "%"})
-        
-        # Publish Heating Demand
-        self.set_state(publish_entities["heating_demand"], state="on" if state.is_heating_needed else "off")
-
-        # Publish Battery Power
         self.set_state(publish_entities["battery_power"], state=round(state.battery_power, 2), attributes={"unit_of_measurement": "W"})
-
-        # Publish Solar Production
+        self.set_state(publish_entities["battery_charging"], state=round(state.battery_charging, 2), attributes={"unit_of_measurement": "W"})
+        self.set_state(publish_entities["battery_discharging"], state=round(state.battery_discharging, 2), attributes={"unit_of_measurement": "W"})
+        self.set_state(publish_entities["grid_power"], state=round(state.grid_power, 2), attributes={"unit_of_measurement": "W"})
+        self.set_state(publish_entities["grid_import"], state=round(state.grid_import, 2), attributes={"unit_of_measurement": "W"})
+        self.set_state(publish_entities["grid_export"], state=round(state.grid_export, 2), attributes={"unit_of_measurement": "W"})
         self.set_state(publish_entities["solar_production"], state=round(state.solar_production, 2), attributes={"unit_of_measurement": "W"})
+        if "miner_consumption" in publish_entities:
+          self.set_state(publish_entities["miner_consumption"], state=round(state.miner_consumption, 2), attributes={"unit_of_measurement": "W"})
 
-        # Publish Controller Status
         self.set_state(publish_entities["controller_running"], state="on")
         self.set_state(publish_entities["last_successful_run"], state=state.last_updated)
 

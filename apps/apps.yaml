@@ -6,22 +6,29 @@ energy_manager:
   sensors:
     grid_power: sensor.grid_power
     battery_soc: sensor.victron_battery_soc
-    heating_demand_boolean: input_boolean.heating_demand
     battery_power: sensor.victron_system_battery_power
     solar_production: sensor.envoy_122327001496_aktuelle_stromproduktion
+    miner_consumption: sensor.deiner_miner_consumption
+    chp_production: sensor.96464_nm102
 
   # Configuration for the first device handler
   miner_heater:
-    switch_entity: switch.bitcoin_miner
-    power_draw: 2000
-    min_battery_soc: 95
+    switch_entity: switch.deiner_active
+    power_limit_entity: number.deiner_power_limit
 
   # Entities the controller will create/publish to
   publish_entities:
-    pv_surplus: sensor.controller_pv_surplus
+    total_surplus: sensor.controller_total_surplus
+    solar_surplus: sensor.controller_solar_surplus
+    chp_production: sensor.controller_chp_production
     battery_soc: sensor.controller_battery_soc
-    heating_demand: binary_sensor.controller_heating_demand
     battery_power: sensor.controller_battery_power
+    battery_charging: sensor.controller_battery_charging
+    battery_discharging: sensor.controller_battery_discharging
+    grid_power: sensor.controller_grid_power
+    grid_import: sensor.controller_grid_import
+    grid_export: sensor.controller_grid_export
     solar_production: sensor.controller_solar_production
+    miner_consumption: sensor.controller_miner_consumption
     controller_running: binary_sensor.controller_running
     last_successful_run: sensor.controller_last_successful_run
