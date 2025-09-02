@@ -80,7 +80,6 @@ class SystemState:
         except (TypeError, ValueError) as e:
             app.error(f"Error retrieving sensor data: {e}")
             return None
-        try:
         
         # Positive grid power is drawing from grid, negative is sending power to grid
         grid_import = max(0, grid_power)
