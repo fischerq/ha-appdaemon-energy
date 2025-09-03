@@ -11,12 +11,7 @@ class EnergyController(hass.Hass):
         self.log("Hello from the Solalindenstein AppDaemon Energy Manager!")
         self.log("Initializing Modular Energy Controller.")
 
-        # Create dry run switch if it doesn't exist
         self.dry_run_switch_entity = self.args.get("dry_run_switch_entity")
-        if self.dry_run_switch_entity and self.get_state(self.dry_run_switch_entity) is None:
-            self.log(f"Creating dry run switch: {self.dry_run_switch_entity}")
-            self.set_state(self.dry_run_switch_entity, state="off", attributes={"friendly_name": "Energy Manager Dry Run"})
-
         if not SystemState.validate_sensors(self, self.args.get("sensors", {})):
             self.error("Aborting initialization due to bad sensor configuration.")
             return

@@ -61,12 +61,12 @@ def energy_controller(monkeypatch):
             "power_draw": 1000,
             "min_battery_soc": 50
         },
-        "dry_run_switch_entity": "switch.dry_run"
+        "dry_run_switch_entity": "input_boolean.energy_controller_dry_run"
     }
     controller.log = Mock()
     controller.error = Mock()
     def mock_get_state(entity_id, **kwargs):
-        if entity_id == "switch.dry_run":
+        if entity_id == "input_boolean.energy_controller_dry_run":
             return "off"
         if entity_id == "switch.miner_heater":
             return "on"
