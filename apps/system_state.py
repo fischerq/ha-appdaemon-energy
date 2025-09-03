@@ -1,10 +1,12 @@
 import appdaemon.plugins.hass.hassapi as hass
 from dataclasses import dataclass, asdict
-from datetime import datetime
+from datetime import datetime, timezone
+from typing import Optional
 
-@dataclass
+@dataclass(kw_only=True)
 class SystemState:
     """A dataclass to act as a data container for system state."""
+    # Sensor values
     solar_surplus: float
     total_surplus: float
     chp_production: float
@@ -17,7 +19,14 @@ class SystemState:
     grid_export: float
     solar_production: float
     miner_consumption: float
+    miner_power_limit: float
     last_updated: str
+    is_dry_run: bool
+
+    # Intended actions from handlers
+    miner_intended_power_limit: Optional[float] = None
+    miner_intended_switch_state: Optional[str] = None
+    battery_intended_charge_switch_state: Optional[str] = None
 
     @classmethod
     def validate_sensors(cls, app: hass.Hass, sensors: dict) -> bool:
@@ -51,12 +60,13 @@ class SystemState:
         return True
 
     @classmethod
-    def from_home_assistant(cls, app: hass.Hass) -> SystemState | None:
+    def from_home_assistant(cls, app: hass.Hass, is_dry_run: bool) -> Optional["SystemState"]:
         """
         Factory method to create a SystemState object from Home Assistant sensor values.
 
         Args:
             app: The AppDaemon app instance.
+            is_dry_run: The current dry run status.
             Returns:
             A populated SystemState object, or None if sensor data is unavailable.
         """
@@ -66,17 +76,23 @@ class SystemState:
         solar_production_sensor = app.args["sensors"]["solar_production"]
         miner_consumption_sensor = app.args["sensors"]["miner_consumption"]
         chp_production_sensor = app.args["sensors"]["chp_production"]
+        miner_power_limit_entity = app.args.get("miner_heater", {}).get("power_limit_entity")
         try:
             grid_power = float(app.get_state(grid_power_sensor))
             battery_soc = float(app.get_state(battery_soc_sensor))
             battery_power = float(app.get_state(battery_power_sensor))
             solar_production = float(app.get_state(solar_production_sensor)) * 1000 # convert kW to W
             chp_production = float(app.get_state(chp_production_sensor))
+
             miner_consumption_value = app.get_state(miner_consumption_sensor)
-            if miner_consumption_value == "unknown":
-                miner_consumption = 0
-            else:
-                miner_consumption = float(miner_consumption_value)
+            miner_consumption = float(miner_consumption_value) if miner_consumption_value not in ("unknown", "unavailable", None) else 0.0
+
+            miner_power_limit = 0.0
+            if miner_power_limit_entity:
+                miner_power_limit_value = app.get_state(miner_power_limit_entity)
+                if miner_power_limit_value not in ("unknown", "unavailable", None):
+                    miner_power_limit = float(miner_power_limit_value)
+
         except (TypeError, ValueError) as e:
             app.error(f"Error retrieving sensor data: {e}")
             return None
@@ -108,7 +124,9 @@ class SystemState:
             grid_export=grid_export,
             solar_production=solar_production,
             miner_consumption=miner_consumption,
-            last_updated=datetime.now(timezone.utc).isoformat()
+            miner_power_limit=miner_power_limit,
+            last_updated=datetime.now(timezone.utc).isoformat(),
+            is_dry_run=is_dry_run
         )
         app.log(f"Current state: {state}")
         return state
@@ -161,3 +179,54 @@ class SystemState:
         hass_app.set_state(publish_entities["last_successful_run"], state=self.last_updated)
         
         hass_app.log("Published controller state to Home Assistant.")
+
+    def execute_actions(self, app: hass.Hass):
+        """
+        Executes the intended actions from the handlers, respecting the dry run mode.
+        """
+        miner_config = app.args.get("miner_heater", {})
+        battery_config = app.args.get("battery_handler", {})
+
+        # Miner Actions
+        if self.miner_intended_switch_state is not None:
+            entity = miner_config.get("switch_entity")
+            if entity and app.get_state(entity) != self.miner_intended_switch_state:
+                app.log(f"Intending to turn {self.miner_intended_switch_state} {entity}")
+                if not self.is_dry_run:
+                    if self.miner_intended_switch_state == 'on':
+                        app.turn_on(entity)
+                    else:
+                        app.turn_off(entity)
+                else:
+                    app.log(f"[DRY RUN] Would have turned {self.miner_intended_switch_state} {entity}")
+
+        if self.miner_intended_power_limit is not None:
+            entity = miner_config.get("power_limit_entity")
+            if entity:
+                app.log(f"Intending to set miner power limit for {entity} to {self.miner_intended_power_limit} W.")
+                if not self.is_dry_run:
+                    power_limit_entity_state = app.get_state(entity, attribute="all") or {}
+                    current_attributes = power_limit_entity_state.get("attributes", {})
+                    new_attributes = current_attributes.copy()
+                    new_attributes["last_write"] = datetime.now(timezone.utc).isoformat()
+                    app.set_state(entity, state=self.miner_intended_power_limit, attributes=new_attributes)
+                else:
+                    app.log(f"[DRY RUN] Would have set power limit for {entity} to {self.miner_intended_power_limit} W.")
+
+        # Battery Actions
+        if self.battery_intended_charge_switch_state is not None:
+            entity = battery_config.get("disable_charge_switch")
+            if entity:
+                # Note: 'on' means disabled, 'off' means enabled.
+                current_state_is_on = app.get_state(entity) == 'on'
+                intend_to_be_on = self.battery_intended_charge_switch_state == 'on'
+                if current_state_is_on != intend_to_be_on:
+                    action = "ON to disable" if intend_to_be_on else "OFF to enable"
+                    app.log(f"Intending to turn {action} charging for {entity}")
+                    if not self.is_dry_run:
+                        if intend_to_be_on:
+                            app.turn_on(entity)
+                        else:
+                            app.turn_off(entity)
+                    else:
+                        app.log(f"[DRY RUN] Would have turned {action} charging for {entity}")

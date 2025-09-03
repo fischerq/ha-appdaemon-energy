@@ -1,4 +1,5 @@
 import math
+from datetime import datetime, timezone
 import appdaemon.plugins.hass.hassapi as hass
 from system_state import SystemState
 
@@ -19,32 +20,44 @@ class MinerHeaterHandler:
         self.activation_threshold = self.config.get("activation_threshold", 2000)
         self.max_power = self.config.get("max_power", 6000)
         self.power_step = self.config.get("power_step", 1000)
+        self.min_write_interval_seconds = self.config.get("min_write_interval_seconds", 60)
 
-    def evaluate_and_act(self, state: SystemState, is_dry_run: bool):
+    def evaluate_and_act(self, state: SystemState):
         """
         Main decision-making method to control the miner.
+        This method calculates the intended state and stores it in the SystemState object.
         Args:
             state: The current system state.
-            is_dry_run: If True, the handler will only log its actions.
         """
         is_on = self.app.get_state(self.entity_id) == "on"
 
-        # Turn on if there is at least a certain amount of total surplus
-        if state.total_surplus >= self.activation_threshold:
-            if not is_on:
-                self.app.log(f"[DRY RUN] Turning on miner heater ({self.entity_id}) due to total surplus." if is_dry_run else f"Turning on miner heater ({self.entity_id}) due to total surplus.")
-                if not is_dry_run:
-                    self.app.turn_on(self.entity_id)
+        adjusted_surplus = state.total_surplus + state.miner_consumption
 
-            # Increase the limit in increments up to the max power
-            power_limit = min(self.max_power, self.activation_threshold + self.power_step * math.floor((state.total_surplus - self.activation_threshold) / self.power_step))
-            self.app.log(f"[DRY RUN] Setting miner power limit to {power_limit} W." if is_dry_run else f"Setting miner power limit to {power_limit} W.")
-            if not is_dry_run:
-                self.app.call_service("number/set_value", entity_id=self.power_limit_entity, value=power_limit)
+        if adjusted_surplus >= self.activation_threshold:
+            # We want the miner to be on.
+            state.miner_intended_switch_state = 'on'
 
-        # Turn off if there is not enough surplus
+            # Calculate new power limit
+            new_power_limit = min(self.max_power, self.activation_threshold + self.power_step * math.floor((adjusted_surplus - self.activation_threshold) / self.power_step))
+
+            if new_power_limit != state.miner_power_limit:
+                # Check if we are allowed to write based on the interval
+                power_limit_entity_state = self.app.get_state(self.power_limit_entity, attribute="all") or {}
+                last_write_str = power_limit_entity_state.get("attributes", {}).get("last_write")
+
+                can_write = False
+                if last_write_str is None:
+                    can_write = True
+                else:
+                    last_write_dt = datetime.fromisoformat(last_write_str)
+                    time_since_last_write = (datetime.now(timezone.utc) - last_write_dt).total_seconds()
+                    if time_since_last_write >= self.min_write_interval_seconds:
+                        can_write = True
+
+                if can_write:
+                    state.miner_intended_power_limit = new_power_limit
+                else:
+                    self.app.log(f"Skipping miner power limit write for {self.power_limit_entity} due to minimum interval. New limit would be {new_power_limit}W.")
         else:
-            if is_on:
-                self.app.log(f"[DRY RUN] Turning off miner heater ({self.entity_id}) due to insufficient total surplus." if is_dry_run else f"Turning off miner heater ({self.entity_id}) due to insufficient total surplus.")
-                if not is_dry_run:
-                    self.app.turn_off(self.entity_id)
+            # We want the miner to be off.
+            state.miner_intended_switch_state = 'off'

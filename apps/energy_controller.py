@@ -2,6 +2,7 @@ import appdaemon.plugins.hass.hassapi as hass
 from datetime import datetime, timezone
 from system_state import SystemState
 from miner_heater_handler import MinerHeaterHandler
+from battery_handler import BatteryHandler
 
 class EnergyController(hass.Hass):
     """The main AppDaemon class for orchestrating energy devices."""
@@ -11,12 +12,7 @@ class EnergyController(hass.Hass):
         self.log("Hello from the Solalindenstein AppDaemon Energy Manager!")
         self.log("Initializing Modular Energy Controller.")
 
-        # Create dry run switch if it doesn't exist
         self.dry_run_switch_entity = self.args.get("dry_run_switch_entity")
-        if self.dry_run_switch_entity and self.get_state(self.dry_run_switch_entity) is None:
-            self.log(f"Creating dry run switch: {self.dry_run_switch_entity}")
-            self.set_state(self.dry_run_switch_entity, state="off", attributes={"friendly_name": "Energy Manager Dry Run"})
-
         if not SystemState.validate_sensors(self, self.args.get("sensors", {})):
             self.error("Aborting initialization due to bad sensor configuration.")
             return
@@ -28,6 +24,11 @@ class EnergyController(hass.Hass):
             miner_config = self.args["miner_heater"]
             self.device_handlers.append(MinerHeaterHandler(self, miner_config))
             self.log("Initialized MinerHeaterHandler.")
+
+        if "battery_handler" in self.args:
+            battery_config = self.args["battery_handler"]
+            self.device_handlers.append(BatteryHandler(self, battery_config))
+            self.log("Initialized BatteryHandler.")
 
         # Add more handlers here for other devices, e.g., wallbox
 
@@ -42,7 +43,7 @@ class EnergyController(hass.Hass):
             self.log("Running in dry-run mode.")
         
         self.log("Running control loop...")
-        state = SystemState.from_home_assistant(self)
+        state = SystemState.from_home_assistant(self, is_dry_run)
 
         if state is None:
             self.log("Could not retrieve system state. Skipping control loop.")
@@ -54,5 +55,8 @@ class EnergyController(hass.Hass):
         state.publish_to_ha(self, self.args["publish_entities"])
 
         for handler in self.device_handlers:
-            handler.evaluate_and_act(state, is_dry_run)
+            handler.evaluate_and_act(state)
+
+        state.execute_actions(self)
+
         self.log("Control loop finished.")
