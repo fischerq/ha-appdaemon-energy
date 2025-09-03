@@ -20,6 +20,9 @@ def mock_app():
             "solar_production": "sensor.solar_production",
             "miner_consumption": "sensor.miner_consumption",
             "chp_production": "sensor.chp_production"
+        },
+        "miner_heater": {
+            "power_limit_entity": "number.miner_power_limit"
         }
     }
     return app
@@ -37,6 +40,7 @@ class TestSystemState:
             "2.0",      # solar_production (in kW)
             "100.0",    # chp_production
             "1000.0",   # miner_consumption
+            "1200.0"    # miner_power_limit
         ]
 
         state = SystemState.from_home_assistant(mock_app)
@@ -48,6 +52,7 @@ class TestSystemState:
         assert state.solar_production == 2000.0 # aW
         assert state.chp_production == 100.0
         assert state.miner_consumption == 1000.0
+        assert state.miner_power_limit == 1200.0
         assert state.grid_import == 0
         assert state.grid_export == 1500.0
         assert state.battery_charging == 0
@@ -72,6 +77,7 @@ class TestSystemState:
             grid_export=1000.0,
             solar_production=2000.123,
             miner_consumption=0,
+            miner_power_limit=1200.0,
             last_updated=now
         )
 
