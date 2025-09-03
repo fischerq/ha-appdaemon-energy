@@ -18,6 +18,7 @@ class SystemState:
     grid_export: float
     solar_production: float
     miner_consumption: float
+    miner_power_limit: float
     last_updated: str
 
     @classmethod
@@ -67,17 +68,23 @@ class SystemState:
         solar_production_sensor = app.args["sensors"]["solar_production"]
         miner_consumption_sensor = app.args["sensors"]["miner_consumption"]
         chp_production_sensor = app.args["sensors"]["chp_production"]
+        miner_power_limit_entity = app.args.get("miner_heater", {}).get("power_limit_entity")
         try:
             grid_power = float(app.get_state(grid_power_sensor))
             battery_soc = float(app.get_state(battery_soc_sensor))
             battery_power = float(app.get_state(battery_power_sensor))
             solar_production = float(app.get_state(solar_production_sensor)) * 1000 # convert kW to W
             chp_production = float(app.get_state(chp_production_sensor))
+
             miner_consumption_value = app.get_state(miner_consumption_sensor)
-            if miner_consumption_value == "unknown":
-                miner_consumption = 0
-            else:
-                miner_consumption = float(miner_consumption_value)
+            miner_consumption = float(miner_consumption_value) if miner_consumption_value not in ("unknown", "unavailable", None) else 0.0
+
+            miner_power_limit = 0.0
+            if miner_power_limit_entity:
+                miner_power_limit_value = app.get_state(miner_power_limit_entity)
+                if miner_power_limit_value not in ("unknown", "unavailable", None):
+                    miner_power_limit = float(miner_power_limit_value)
+
         except (TypeError, ValueError) as e:
             app.error(f"Error retrieving sensor data: {e}")
             return None
@@ -109,6 +116,7 @@ class SystemState:
             grid_export=grid_export,
             solar_production=solar_production,
             miner_consumption=miner_consumption,
+            miner_power_limit=miner_power_limit,
             last_updated=datetime.now(timezone.utc).isoformat()
         )
         app.log(f"Current state: {state}")
