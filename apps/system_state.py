@@ -1,6 +1,7 @@
 import appdaemon.plugins.hass.hassapi as hass
 from dataclasses import dataclass, asdict
-from datetime import datetime
+from datetime import datetime, timezone
+from typing import Optional
 
 @dataclass
 class SystemState:
@@ -51,7 +52,7 @@ class SystemState:
         return True
 
     @classmethod
-    def from_home_assistant(cls, app: hass.Hass) -> SystemState | None:
+    def from_home_assistant(cls, app: hass.Hass) -> Optional["SystemState"]:
         """
         Factory method to create a SystemState object from Home Assistant sensor values.
 
