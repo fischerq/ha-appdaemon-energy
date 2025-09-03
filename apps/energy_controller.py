@@ -2,6 +2,7 @@ import appdaemon.plugins.hass.hassapi as hass
 from datetime import datetime, timezone
 from system_state import SystemState
 from miner_heater_handler import MinerHeaterHandler
+from battery_handler import BatteryHandler
 
 class EnergyController(hass.Hass):
     """The main AppDaemon class for orchestrating energy devices."""
@@ -23,6 +24,11 @@ class EnergyController(hass.Hass):
             miner_config = self.args["miner_heater"]
             self.device_handlers.append(MinerHeaterHandler(self, miner_config))
             self.log("Initialized MinerHeaterHandler.")
+
+        if "battery_handler" in self.args:
+            battery_config = self.args["battery_handler"]
+            self.device_handlers.append(BatteryHandler(self, battery_config))
+            self.log("Initialized BatteryHandler.")
 
         # Add more handlers here for other devices, e.g., wallbox
 
