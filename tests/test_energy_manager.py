@@ -24,6 +24,7 @@ def miner_heater_handler(mock_app):
     """Fixture for a MinerHeaterHandler instance."""
     config = {
         "switch_entity": "switch.miner_heater",
+        "power_limit_entity": "number.miner_power_limit",
         "power_draw": 1000,
         "min_battery_soc": 50,
     }
@@ -241,6 +242,46 @@ class TestMinerHeaterHandler:
         expected_attributes = {"last_write": now.isoformat(), "friendly_name": "Miner Power Limit"}
         mock_app.set_state.assert_called_once_with(miner_heater_handler.power_limit_entity, state=3000.0, attributes=expected_attributes)
 
+    def test_evaluate_and_act_dry_run_logging(self, miner_heater_handler, mock_app):
+        """Test that correct log messages are generated in dry run mode."""
+        # Scenario: surplus is high, miner is off, power limit needs to change
+        state = SystemState(
+            solar_surplus=3000,
+            total_surplus=3000,
+            chp_production=0,
+            battery_soc=60,
+            battery_power=0,
+            battery_charging=0,
+            battery_discharging=0,
+            grid_power=0,
+            grid_import=0,
+            grid_export=0,
+            solar_production=3000,
+            miner_consumption=0,
+            miner_power_limit=2000.0,
+            last_updated="now"
+        )
+        # Mock get_state to return 'off' for the switch, and a state with no last_write for the power limit
+        mock_app.get_state.side_effect = [
+            "off",
+            { "state": "2000.0", "attributes": {} }
+        ]
+
+        miner_heater_handler.evaluate_and_act(state, is_dry_run=True)
+
+        # Assert actions were not taken
+        mock_app.turn_on.assert_not_called()
+        mock_app.set_state.assert_not_called()
+
+        # Assert log messages
+        expected_logs = [
+            call(f"Turning on miner heater ({miner_heater_handler.entity_id}) due to total surplus."),
+            call(f"[DRY RUN] Would have turned on {miner_heater_handler.entity_id}"),
+            call("Setting miner power limit to 3000 W."),
+            call(f"[DRY RUN] Would have set power limit for {miner_heater_handler.power_limit_entity} to 3000 W.")
+        ]
+        mock_app.log.assert_has_calls(expected_logs)
+
 class TestEnergyController:
 
     def test_control_loop_success(self, energy_controller, monkeypatch):
@@ -264,4 +305,3 @@ class TestEnergyController:
 
         mock_from_ha.assert_called_once_with(energy_controller)
         energy_controller.set_state.assert_called_with(energy_controller.args["publish_entities"]["controller_running"], state="off")
-    

@@ -37,6 +37,8 @@ class MinerHeaterHandler:
                 self.app.log(f"Turning on miner heater ({self.entity_id}) due to total surplus.")
                 if not is_dry_run:
                     self.app.turn_on(self.entity_id)
+                else:
+                    self.app.log(f"[DRY RUN] Would have turned on {self.entity_id}")
 
             # Increase the limit in increments up to the max power
             new_power_limit = min(self.max_power, self.activation_threshold + self.power_step * math.floor((state.total_surplus - self.activation_threshold) / self.power_step))
@@ -61,6 +63,8 @@ class MinerHeaterHandler:
                         new_attributes = current_attributes.copy()
                         new_attributes["last_write"] = datetime.now(timezone.utc).isoformat()
                         self.app.set_state(self.power_limit_entity, state=new_power_limit, attributes=new_attributes)
+                    else:
+                        self.app.log(f"[DRY RUN] Would have set power limit for {self.power_limit_entity} to {new_power_limit} W.")
                 else:
                     self.app.log(f"Skipping miner power limit write for {self.power_limit_entity} due to minimum interval. New limit would be {new_power_limit}W.")
         # Turn off if there is not enough surplus
@@ -69,3 +73,5 @@ class MinerHeaterHandler:
                 self.app.log(f"Turning off miner heater ({self.entity_id}) due to insufficient total surplus.")
                 if not is_dry_run:
                     self.app.turn_off(self.entity_id)
+                else:
+                    self.app.log(f"[DRY RUN] Would have turned off {self.entity_id}")
