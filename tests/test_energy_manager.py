@@ -108,6 +108,7 @@ class TestMinerHeaterHandler:
         ]
         miner_heater_handler.evaluate_and_act(state, is_dry_run=False)
         mock_app.turn_on.assert_called_with("switch.miner_heater")
+        mock_app.set_state.assert_called_once()
 
     def test_evaluate_and_act_turn_off_low_surplus(self, miner_heater_handler, mock_app):
         """Test turning the miner heater off when PV surplus is low."""
@@ -282,12 +283,46 @@ class TestMinerHeaterHandler:
         ]
         mock_app.log.assert_has_calls(expected_logs)
 
+    def test_evaluate_and_act_with_miner_consumption(self, miner_heater_handler, mock_app):
+        """Test that the handler correctly uses adjusted_surplus."""
+        # Scenario: total_surplus is low, but miner_consumption is high, making adjusted_surplus high enough.
+        state = SystemState(
+            solar_surplus=1500,
+            total_surplus=1500,
+            chp_production=0,
+            battery_soc=60,
+            battery_power=0,
+            battery_charging=0,
+            battery_discharging=0,
+            grid_power=0,
+            grid_import=0,
+            grid_export=0,
+            solar_production=2500,
+            miner_consumption=1000.0,
+            miner_power_limit=1000.0,
+            last_updated="now"
+        )
+        # adjusted_surplus = 1500 + 1000 = 2500. New limit should be 2000.
+        mock_app.get_state.side_effect = [
+            "on",
+            { "state": "1000.0", "attributes": {} }
+        ]
+
+        miner_heater_handler.evaluate_and_act(state, is_dry_run=False)
+
+        # Assert new limit is set
+        mock_app.set_state.assert_called_once()
+        # The first argument of the first call to set_state
+        args, kwargs = mock_app.set_state.call_args
+        assert kwargs['state'] == 2000.0
+
 class TestEnergyController:
 
     def test_control_loop_success(self, energy_controller, monkeypatch):
         """Tests a successful run of the control loop."""
         mock_state = Mock()
         mock_state.total_surplus = 2100
+        mock_state.miner_consumption = 0
         mock_from_ha = Mock(return_value=mock_state)
         monkeypatch.setattr(SystemState, "from_home_assistant", mock_from_ha)
 

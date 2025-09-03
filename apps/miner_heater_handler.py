@@ -31,8 +31,11 @@ class MinerHeaterHandler:
         """
         is_on = self.app.get_state(self.entity_id) == "on"
 
+        # The available surplus for the miner is the total surplus plus what the miner is already consuming.
+        adjusted_surplus = state.total_surplus + state.miner_consumption
+
         # Turn on if there is at least a certain amount of total surplus
-        if state.total_surplus >= self.activation_threshold:
+        if adjusted_surplus >= self.activation_threshold:
             if not is_on:
                 self.app.log(f"Turning on miner heater ({self.entity_id}) due to total surplus.")
                 if not is_dry_run:
@@ -41,7 +44,7 @@ class MinerHeaterHandler:
                     self.app.log(f"[DRY RUN] Would have turned on {self.entity_id}")
 
             # Increase the limit in increments up to the max power
-            new_power_limit = min(self.max_power, self.activation_threshold + self.power_step * math.floor((state.total_surplus - self.activation_threshold) / self.power_step))
+            new_power_limit = min(self.max_power, self.activation_threshold + self.power_step * math.floor((adjusted_surplus - self.activation_threshold) / self.power_step))
 
             if new_power_limit != state.miner_power_limit:
                 power_limit_entity_state = self.app.get_state(self.power_limit_entity, attribute="all") or {}
