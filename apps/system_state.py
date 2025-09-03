@@ -91,7 +91,7 @@ class SystemState:
         solar_surplus = grid_export + battery_charging - chp_production
         # Validate that solar surplus is not greater than solar production
         if solar_surplus > solar_production:
-            app.warning(f"Solar surplus ({solar_surplus}W) is greater than solar production ({solar_production}W). Setting surplus to production value.")
+            app.log(f"Solar surplus ({solar_surplus}W) is greater than solar production ({solar_production}W). Setting surplus to production value.")
             solar_surplus = solar_production
         # Total surplus is the sum of solar surplus and CHP production
         total_surplus = solar_surplus + chp_production
