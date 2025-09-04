@@ -43,7 +43,7 @@ class EnergyController(hass.Hass):
             self.log("Running in dry-run mode.")
         
         self.log("Running control loop...")
-        state = SystemState.from_home_assistant(self)
+        state = SystemState.from_home_assistant(self, is_dry_run)
 
         if state is None:
             self.log("Could not retrieve system state. Skipping control loop.")
@@ -55,5 +55,8 @@ class EnergyController(hass.Hass):
         state.publish_to_ha(self, self.args["publish_entities"])
 
         for handler in self.device_handlers:
-            handler.evaluate_and_act(state, is_dry_run)
+            handler.evaluate_and_act(state)
+
+        state.execute_actions(self)
+
         self.log("Control loop finished.")

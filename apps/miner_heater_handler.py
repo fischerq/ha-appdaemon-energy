@@ -22,31 +22,26 @@ class MinerHeaterHandler:
         self.power_step = self.config.get("power_step", 1000)
         self.min_write_interval_seconds = self.config.get("min_write_interval_seconds", 60)
 
-    def evaluate_and_act(self, state: SystemState, is_dry_run: bool):
+    def evaluate_and_act(self, state: SystemState):
         """
         Main decision-making method to control the miner.
+        This method calculates the intended state and stores it in the SystemState object.
         Args:
             state: The current system state.
-            is_dry_run: If True, the handler will only log its actions.
         """
         is_on = self.app.get_state(self.entity_id) == "on"
 
-        # The available surplus for the miner is the total surplus plus what the miner is already consuming.
         adjusted_surplus = state.total_surplus + state.miner_consumption
 
-        # Turn on if there is at least a certain amount of total surplus
         if adjusted_surplus >= self.activation_threshold:
-            if not is_on:
-                self.app.log(f"Turning on miner heater ({self.entity_id}) due to total surplus.")
-                if not is_dry_run:
-                    self.app.turn_on(self.entity_id)
-                else:
-                    self.app.log(f"[DRY RUN] Would have turned on {self.entity_id}")
+            # We want the miner to be on.
+            state.miner_intended_switch_state = 'on'
 
-            # Increase the limit in increments up to the max power
+            # Calculate new power limit
             new_power_limit = min(self.max_power, self.activation_threshold + self.power_step * math.floor((adjusted_surplus - self.activation_threshold) / self.power_step))
 
             if new_power_limit != state.miner_power_limit:
+                # Check if we are allowed to write based on the interval
                 power_limit_entity_state = self.app.get_state(self.power_limit_entity, attribute="all") or {}
                 last_write_str = power_limit_entity_state.get("attributes", {}).get("last_write")
 
@@ -60,21 +55,10 @@ class MinerHeaterHandler:
                         can_write = True
 
                 if can_write:
-                    self.app.log(f"Setting miner power limit to {new_power_limit} W.")
-                    if not is_dry_run:
-                        current_attributes = power_limit_entity_state.get("attributes", {})
-                        new_attributes = current_attributes.copy()
-                        new_attributes["last_write"] = datetime.now(timezone.utc).isoformat()
-                        self.app.set_state(self.power_limit_entity, state=new_power_limit, attributes=new_attributes)
-                    else:
-                        self.app.log(f"[DRY RUN] Would have set power limit for {self.power_limit_entity} to {new_power_limit} W.")
+                    state.miner_intended_power_limit = new_power_limit
                 else:
                     self.app.log(f"Skipping miner power limit write for {self.power_limit_entity} due to minimum interval. New limit would be {new_power_limit}W.")
-        # Turn off if there is not enough surplus
         else:
-            if is_on:
-                self.app.log(f"Turning off miner heater ({self.entity_id}) due to insufficient total surplus.")
-                if not is_dry_run:
-                    self.app.turn_off(self.entity_id)
-                else:
-                    self.app.log(f"[DRY RUN] Would have turned off {self.entity_id}")
+            # We want the miner to be off.
+            state.miner_intended_switch_state = 'off'
+
