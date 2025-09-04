@@ -60,16 +60,21 @@ class SystemState:
         return True
 
     @classmethod
-    def from_home_assistant(cls, app: hass.Hass, is_dry_run: bool) -> Optional["SystemState"]:
+    def from_home_assistant(cls, app: hass.Hass) -> Optional["SystemState"]:
         """
         Factory method to create a SystemState object from Home Assistant sensor values.
 
         Args:
             app: The AppDaemon app instance.
-            is_dry_run: The current dry run status.
             Returns:
             A populated SystemState object, or None if sensor data is unavailable.
         """
+        dry_run_switch_entity = app.args.get("dry_run_switch_entity")
+        is_dry_run = False
+        if dry_run_switch_entity:
+            raw_dry_run_state = app.get_state(dry_run_switch_entity)
+            app.log(f"Raw dry-run switch state: '{raw_dry_run_state}'")
+            is_dry_run = (raw_dry_run_state == "on")
         grid_power_sensor = app.args["sensors"]["grid_power"]
         battery_soc_sensor = app.args["sensors"]["battery_soc"]
         battery_power_sensor = app.args["sensors"]["battery_power"]
@@ -126,7 +131,7 @@ class SystemState:
             miner_consumption=miner_consumption,
             miner_power_limit=miner_power_limit,
             last_updated=datetime.now(timezone.utc).isoformat(),
-            is_dry_run=is_dry_run
+            is_dry_run=is_dry_run,
         )
         app.log(f"Current state: {state}")
         return state
@@ -148,6 +153,11 @@ class SystemState:
             "grid_export": "grid_export",
             "solar_production": "solar_production",
             "miner_consumption": "miner_consumption",
+            "miner_power_limit": "miner_power_limit",
+            "is_dry_run": "is_dry_run",
+            "miner_intended_power_limit": "miner_intended_power_limit",
+            "miner_intended_switch_state": "miner_intended_switch_state",
+            "battery_intended_charge_switch_state": "battery_intended_charge_switch_state",
         }
 
         # Units for the sensors
@@ -164,6 +174,8 @@ class SystemState:
             "grid_export": "W",
             "solar_production": "W",
             "miner_consumption": "W",
+            "miner_power_limit": "W",
+            "miner_intended_power_limit": "W",
         }
 
         state_dict = asdict(self)
@@ -171,9 +183,21 @@ class SystemState:
             if entity_key in publish_entities:
                 entity_id = publish_entities[entity_key]
                 value = state_dict[attr]
+
+                # Skip publishing None values to avoid errors and retain previous state
+                if value is None:
+                    continue
+
                 unit = units.get(attr)
                 attributes = {"unit_of_measurement": unit} if unit else {}
-                hass_app.set_state(entity_id, state=round(value, 2), attributes=attributes)
+
+                final_state = value
+                if isinstance(value, float):
+                    final_state = round(value, 2)
+                elif isinstance(value, bool):
+                    final_state = "on" if value else "off"
+
+                hass_app.set_state(entity_id, state=final_state, attributes=attributes)
         
         hass_app.set_state(publish_entities["controller_running"], state="on")
         hass_app.set_state(publish_entities["last_successful_run"], state=self.last_updated)

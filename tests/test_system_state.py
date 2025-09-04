@@ -35,7 +35,9 @@ from unittest.mock import call
 class TestSystemState:
     def test_from_home_assistant_success(self, mock_app):
         """Test successful creation of SystemState from Home Assistant."""
+        mock_app.args["dry_run_switch_entity"] = "input_boolean.dry_run"
         mock_app.get_state.side_effect = [
+            "off",      # dry_run_switch
             "-1500.0",  # grid_power
             "85.5",     # battery_soc
             "-500.0",   # battery_power
@@ -45,9 +47,10 @@ class TestSystemState:
             "1200.0"    # miner_power_limit
         ]
 
-        state = SystemState.from_home_assistant(mock_app, is_dry_run=False)
+        state = SystemState.from_home_assistant(mock_app)
 
         assert state is not None
+        assert not state.is_dry_run
         assert state.grid_power == -1500.0
         assert state.battery_soc == 85.5
         assert state.battery_power == -500.0
@@ -72,24 +75,39 @@ class TestSystemState:
             chp_production=100.0,
             battery_soc=85.567,
             battery_power=-500.789,
-            battery_charging=0,
+            battery_charging=0.0,
             battery_discharging=500.789,
             grid_power=-1000.0,
-            grid_import=0,
+            grid_import=0.0,
             grid_export=1000.0,
             solar_production=2000.123,
-            miner_consumption=0,
+            miner_consumption=950.0,
             miner_power_limit=1200.0,
             last_updated=now,
-            is_dry_run=False
+            is_dry_run=True,
+            miner_intended_power_limit=1500.0,
+            miner_intended_switch_state="on",
+            battery_intended_charge_switch_state="off"
         )
 
         publish_entities = {
             "solar_surplus": "sensor.controller_solar_surplus",
             "total_surplus": "sensor.controller_total_surplus",
+            "chp_production": "sensor.controller_chp_production",
             "battery_soc": "sensor.controller_battery_soc",
             "battery_power": "sensor.controller_battery_power",
+            "battery_charging": "sensor.controller_battery_charging",
+            "battery_discharging": "sensor.controller_battery_discharging",
+            "grid_power": "sensor.controller_grid_power",
+            "grid_import": "sensor.controller_grid_import",
+            "grid_export": "sensor.controller_grid_export",
             "solar_production": "sensor.controller_solar_production",
+            "miner_consumption": "sensor.controller_miner_consumption",
+            "miner_power_limit": "sensor.controller_miner_power_limit",
+            "is_dry_run": "binary_sensor.controller_is_dry_run",
+            "miner_intended_power_limit": "sensor.controller_miner_intended_power_limit",
+            "miner_intended_switch_state": "sensor.controller_miner_intended_switch_state",
+            "battery_intended_charge_switch_state": "sensor.controller_battery_intended_charge_switch_state",
             "controller_running": "binary_sensor.controller_running",
             "last_successful_run": "sensor.controller_last_successful_run",
         }
@@ -97,16 +115,34 @@ class TestSystemState:
         state.publish_to_ha(mock_app, publish_entities)
 
         expected_calls = [
-            call("sensor.controller_solar_surplus", state=1500.23, attributes={"unit_of_measurement": "W"}),
-            call("sensor.controller_total_surplus", state=1600.23, attributes={"unit_of_measurement": "W"}),
-            call("sensor.controller_battery_soc", state=85.57, attributes={"unit_of_measurement": "%"}),
-            call("sensor.controller_battery_power", state=-500.79, attributes={"unit_of_measurement": "W"}),
-            call("sensor.controller_solar_production", state=2000.12, attributes={"unit_of_measurement": "W"}),
-            call("binary_sensor.controller_running", state="on"),
-            call("sensor.controller_last_successful_run", state=now),
+            # Standard sensor values
+            call('sensor.controller_solar_surplus', state=1500.23, attributes={'unit_of_measurement': 'W'}),
+            call('sensor.controller_total_surplus', state=1600.23, attributes={'unit_of_measurement': 'W'}),
+            call('sensor.controller_chp_production', state=100.0, attributes={'unit_of_measurement': 'W'}),
+            call('sensor.controller_battery_soc', state=85.57, attributes={'unit_of_measurement': '%'}),
+            call('sensor.controller_battery_power', state=-500.79, attributes={'unit_of_measurement': 'W'}),
+            call('sensor.controller_battery_charging', state=0.0, attributes={'unit_of_measurement': 'W'}),
+            call('sensor.controller_battery_discharging', state=500.79, attributes={'unit_of_measurement': 'W'}),
+            call('sensor.controller_grid_power', state=-1000.0, attributes={'unit_of_measurement': 'W'}),
+            call('sensor.controller_grid_import', state=0.0, attributes={'unit_of_measurement': 'W'}),
+            call('sensor.controller_grid_export', state=1000.0, attributes={'unit_of_measurement': 'W'}),
+            call('sensor.controller_solar_production', state=2000.12, attributes={'unit_of_measurement': 'W'}),
+            call('sensor.controller_miner_consumption', state=950.0, attributes={'unit_of_measurement': 'W'}),
+            call('sensor.controller_miner_power_limit', state=1200.0, attributes={'unit_of_measurement': 'W'}),
+
+            # Boolean and intended states
+            call('binary_sensor.controller_is_dry_run', state='on', attributes={}),
+            call('sensor.controller_miner_intended_power_limit', state=1500.0, attributes={'unit_of_measurement': 'W'}),
+            call('sensor.controller_miner_intended_switch_state', state='on', attributes={}),
+            call('sensor.controller_battery_intended_charge_switch_state', state='off', attributes={}),
+
+            # Controller status
+            call('binary_sensor.controller_running', state='on'),
+            call('sensor.controller_last_successful_run', state=now),
         ]
 
         mock_app.set_state.assert_has_calls(expected_calls, any_order=True)
+        assert mock_app.set_state.call_count == len(expected_calls)
 
 class TestSystemStateActions:
     def test_execute_actions_normal_run(self, mock_app):
