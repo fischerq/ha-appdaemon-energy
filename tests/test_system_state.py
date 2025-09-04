@@ -3,6 +3,7 @@ from unittest.mock import Mock
 import sys
 import unittest
 
+
 # Add the apps directory to the python path to allow for imports
 sys.path.append('apps')
 

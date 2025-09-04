@@ -153,6 +153,11 @@ class TestMinerHeaterHandler:
             battery_charging=0, battery_discharging=0, grid_power=0, grid_import=0, grid_export=0,
             solar_production=3000, miner_consumption=0, miner_power_limit=2000.0, last_updated="now", is_dry_run=False
         )
+        # Mock get_state to return 'off' for the switch, and a state with no last_write for the power limit
+        mock_app.get_state.side_effect = [
+            "off",
+            { "state": "2000.0", "attributes": {} }
+        ]
 
         now = datetime.now(timezone.utc)
         class MockDateTime(datetime):

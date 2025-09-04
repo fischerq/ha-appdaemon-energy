@@ -56,6 +56,7 @@ class TestBatteryHandler:
 
         assert state.battery_intended_charge_switch_state == 'off'
 
+
     def test_enable_charging_with_low_soc(self, battery_handler, mock_app):
         """Test that charging is enabled when SOC is low, even with only CHP running."""
         state = SystemState(

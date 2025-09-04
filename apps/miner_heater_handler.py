@@ -61,3 +61,4 @@ class MinerHeaterHandler:
         else:
             # We want the miner to be off.
             state.miner_intended_switch_state = 'off'
+
