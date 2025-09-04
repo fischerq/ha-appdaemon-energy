@@ -20,6 +20,8 @@ class SystemState:
     solar_production: float
     miner_consumption: float
     miner_power_limit: float
+    house_consumption: float
+    miner_surplus: float
     last_updated: str
     is_dry_run: bool
 
@@ -116,9 +118,18 @@ class SystemState:
             solar_surplus = solar_production
         # Total surplus is the sum of solar surplus and CHP production
         total_surplus = solar_surplus + chp_production
+
+        # House consumption is the total consumption of the house, excluding the miner
+        house_consumption = solar_production + grid_import + battery_discharging + chp_production - (grid_export + battery_charging + miner_consumption)
+
+        # Miner surplus is the solar power not used by the house, but counting power for mining or battery charging as available
+        miner_surplus = solar_production - house_consumption
+
         state = cls(
             solar_surplus=solar_surplus,
             total_surplus=total_surplus,
+            house_consumption=house_consumption,
+            miner_surplus=miner_surplus,
             chp_production=chp_production,
             battery_soc=battery_soc,
             battery_power=battery_power,
@@ -154,6 +165,8 @@ class SystemState:
             "solar_production": "solar_production",
             "miner_consumption": "miner_consumption",
             "miner_power_limit": "miner_power_limit",
+            "house_consumption": "house_consumption",
+            "miner_surplus": "miner_surplus",
             "is_dry_run": "is_dry_run",
             "miner_intended_power_limit": "miner_intended_power_limit",
             "miner_intended_switch_state": "miner_intended_switch_state",
@@ -175,6 +188,8 @@ class SystemState:
             "solar_production": "W",
             "miner_consumption": "W",
             "miner_power_limit": "W",
+            "house_consumption": "W",
+            "miner_surplus": "W",
             "miner_intended_power_limit": "W",
         }
 
