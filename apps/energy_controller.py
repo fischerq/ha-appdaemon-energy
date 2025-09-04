@@ -48,11 +48,10 @@ class EnergyController(hass.Hass):
             self.set_state(publish_entities["controller_running"], state="off")
             return
 
-        state.publish_to_ha(self, self.args["publish_entities"])
-
         for handler in self.device_handlers:
             handler.evaluate_and_act(state)
 
+        state.publish_to_ha(self, self.args["publish_entities"])
         state.execute_actions(self)
 
         self.log("Control loop finished.")
