@@ -198,7 +198,7 @@ class TestEnergyController:
 
         EnergyController.control_loop(energy_controller, None)
 
-        mock_from_ha.assert_called_once_with(energy_controller, False)
+        mock_from_ha.assert_called_once_with(energy_controller)
         mock_state.publish_to_ha.assert_called_once()
         mock_state.execute_actions.assert_called_once_with(energy_controller)
 
@@ -209,5 +209,5 @@ class TestEnergyController:
 
         EnergyController.control_loop(energy_controller, None)
 
-        mock_from_ha.assert_called_once_with(energy_controller, False)
+        mock_from_ha.assert_called_once_with(energy_controller)
         energy_controller.set_state.assert_called_with(energy_controller.args["publish_entities"]["controller_running"], state="off")

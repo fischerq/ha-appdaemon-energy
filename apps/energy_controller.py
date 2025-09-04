@@ -38,12 +38,8 @@ class EnergyController(hass.Hass):
 
     def control_loop(self, kwargs):
         """The main control loop."""
-        is_dry_run = self.dry_run_switch_entity and self.get_state(self.dry_run_switch_entity) == "on"
-        if is_dry_run:
-            self.log("Running in dry-run mode.")
-        
         self.log("Running control loop...")
-        state = SystemState.from_home_assistant(self, is_dry_run)
+        state = SystemState.from_home_assistant(self)
 
         if state is None:
             self.log("Could not retrieve system state. Skipping control loop.")
