@@ -37,27 +37,29 @@ class MinerHeaterHandler:
             # We want the miner to be on.
             state.miner_intended_switch_state = 'on'
 
-            # Calculate new power limit
-            new_power_limit = min(self.max_power, self.activation_threshold + self.power_step * math.floor((adjusted_surplus - self.activation_threshold) / self.power_step))
+            # Only adjust power limit if the surplus is significantly different from the current limit
+            if abs(adjusted_surplus - state.miner_power_limit) >= self.power_step:
+                # Calculate new power limit
+                new_power_limit = min(self.max_power, self.activation_threshold + self.power_step * math.floor((adjusted_surplus - self.activation_threshold) / self.power_step))
 
-            if new_power_limit != state.miner_power_limit:
-                # Check if we are allowed to write based on the interval
-                power_limit_entity_state = self.app.get_state(self.power_limit_entity, attribute="all") or {}
-                last_write_str = power_limit_entity_state.get("attributes", {}).get("last_write")
+                if new_power_limit != state.miner_power_limit:
+                    # Check if we are allowed to write based on the interval
+                    power_limit_entity_state = self.app.get_state(self.power_limit_entity, attribute="all") or {}
+                    last_write_str = power_limit_entity_state.get("attributes", {}).get("last_write")
 
-                can_write = False
-                if last_write_str is None:
-                    can_write = True
-                else:
-                    last_write_dt = datetime.fromisoformat(last_write_str)
-                    time_since_last_write = (datetime.now(timezone.utc) - last_write_dt).total_seconds()
-                    if time_since_last_write >= self.min_write_interval_seconds:
+                    can_write = False
+                    if last_write_str is None:
                         can_write = True
+                    else:
+                        last_write_dt = datetime.fromisoformat(last_write_str)
+                        time_since_last_write = (datetime.now(timezone.utc) - last_write_dt).total_seconds()
+                        if time_since_last_write >= self.min_write_interval_seconds:
+                            can_write = True
 
-                if can_write:
-                    state.miner_intended_power_limit = new_power_limit
-                else:
-                    self.app.log(f"Skipping miner power limit write for {self.power_limit_entity} due to minimum interval. New limit would be {new_power_limit}W.")
+                    if can_write:
+                        state.miner_intended_power_limit = new_power_limit
+                    else:
+                        self.app.log(f"Skipping miner power limit write for {self.power_limit_entity} due to minimum interval. New limit would be {new_power_limit}W.")
         else:
             # We want the miner to be off.
             state.miner_intended_switch_state = 'off'
