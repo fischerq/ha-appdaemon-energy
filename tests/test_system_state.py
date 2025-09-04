@@ -72,6 +72,8 @@ class TestSystemState:
         state = SystemState(
             solar_surplus=1500.234,
             total_surplus=1600.234,
+            house_consumption=500.0,
+            miner_surplus=1500.123,
             chp_production=100.0,
             battery_soc=85.567,
             battery_power=-500.789,
@@ -151,7 +153,7 @@ class TestSystemStateActions:
             # Sensor values are not relevant for this test
             solar_surplus=0, total_surplus=0, chp_production=0, battery_soc=0, battery_power=0,
             battery_charging=0, battery_discharging=0, grid_power=0, grid_import=0, grid_export=0,
-            solar_production=0, miner_consumption=0, miner_power_limit=0, last_updated="now",
+            solar_production=0, miner_consumption=0, miner_power_limit=0, house_consumption=0, miner_surplus=0, last_updated="now",
             # Set dry run to False
             is_dry_run=False,
             # Set intended actions
@@ -183,7 +185,7 @@ class TestSystemStateActions:
         state = SystemState(
             solar_surplus=0, total_surplus=0, chp_production=0, battery_soc=0, battery_power=0,
             battery_charging=0, battery_discharging=0, grid_power=0, grid_import=0, grid_export=0,
-            solar_production=0, miner_consumption=0, miner_power_limit=0, last_updated="now",
+            solar_production=0, miner_consumption=0, miner_power_limit=0, house_consumption=0, miner_surplus=0, last_updated="now",
             is_dry_run=True,
             miner_intended_switch_state='on',
             miner_intended_power_limit=3000.0,

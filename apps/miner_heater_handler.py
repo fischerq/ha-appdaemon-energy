@@ -31,7 +31,7 @@ class MinerHeaterHandler:
         """
         is_on = self.app.get_state(self.entity_id) == "on"
 
-        adjusted_surplus = state.total_surplus + state.miner_consumption
+        adjusted_surplus = state.miner_surplus
 
         if adjusted_surplus >= self.activation_threshold:
             # We want the miner to be on.

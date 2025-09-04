@@ -36,7 +36,7 @@ class TestBatteryHandler:
             battery_soc=60, chp_production=200, solar_production=20,
             solar_surplus=0, total_surplus=0, battery_power=0, battery_charging=0, battery_discharging=0,
             grid_power=0, grid_import=0, grid_export=0, miner_consumption=0, miner_power_limit=0,
-            last_updated="now", is_dry_run=False
+            house_consumption=0, miner_surplus=0, last_updated="now", is_dry_run=False
         )
 
         battery_handler.evaluate_and_act(state)
@@ -49,7 +49,7 @@ class TestBatteryHandler:
             battery_soc=60, chp_production=200, solar_production=100,
             solar_surplus=0, total_surplus=0, battery_power=0, battery_charging=0, battery_discharging=0,
             grid_power=0, grid_import=0, grid_export=0, miner_consumption=0, miner_power_limit=0,
-            last_updated="now", is_dry_run=False
+            house_consumption=0, miner_surplus=0, last_updated="now", is_dry_run=False
         )
 
         battery_handler.evaluate_and_act(state)
@@ -63,7 +63,7 @@ class TestBatteryHandler:
             battery_soc=40, chp_production=200, solar_production=20,
             solar_surplus=0, total_surplus=0, battery_power=0, battery_charging=0, battery_discharging=0,
             grid_power=0, grid_import=0, grid_export=0, miner_consumption=0, miner_power_limit=0,
-            last_updated="now", is_dry_run=False
+            house_consumption=0, miner_surplus=0, last_updated="now", is_dry_run=False
         )
 
         battery_handler.evaluate_and_act(state)

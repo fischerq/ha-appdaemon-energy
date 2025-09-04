@@ -87,23 +87,27 @@ class TestMinerHeaterHandler:
     def test_evaluate_and_act_turn_on(self, miner_heater_handler, mock_app):
         """Test turning the miner heater on."""
         state = SystemState(
-            solar_surplus=2100, total_surplus=2100, chp_production=0, battery_soc=60, battery_power=-500,
-            battery_charging=0, battery_discharging=500, grid_power=0, grid_import=0, grid_export=0,
-            solar_production=2100, miner_consumption=0, miner_power_limit=0.0, last_updated="now", is_dry_run=False
+            solar_production=5000,
+            grid_power=-4000, grid_export=4000, grid_import=0,
+            solar_surplus=4000, total_surplus=4000, chp_production=0,
+            battery_soc=60, battery_power=0, battery_charging=0, battery_discharging=0,
+            miner_consumption=0, miner_power_limit=0.0, last_updated="now", is_dry_run=False,
+            house_consumption=1000, miner_surplus=4000
         )
         mock_app.get_state.side_effect = [ "off", { "state": "0.0", "attributes": {} } ]
 
         miner_heater_handler.evaluate_and_act(state)
 
         assert state.miner_intended_switch_state == 'on'
-        assert state.miner_intended_power_limit == 2000.0
+        assert state.miner_intended_power_limit == 4000.0
 
     def test_evaluate_and_act_turn_off_low_surplus(self, miner_heater_handler, mock_app):
         """Test turning the miner heater off when PV surplus is low."""
         state = SystemState(
             solar_surplus=700, total_surplus=700, chp_production=0, battery_soc=60, battery_power=-200,
             battery_charging=0, battery_discharging=200, grid_power=0, grid_import=0, grid_export=0,
-            solar_production=900, miner_consumption=0, miner_power_limit=2000.0, last_updated="now", is_dry_run=False
+            solar_production=900, miner_consumption=0, miner_power_limit=2000.0, last_updated="now", is_dry_run=False,
+            house_consumption=1100, miner_surplus=-200
         )
         mock_app.get_state.return_value = "on"
 
@@ -114,9 +118,12 @@ class TestMinerHeaterHandler:
     def test_evaluate_and_act_skip_write_if_limit_unchanged(self, miner_heater_handler, mock_app):
         """Test that a write is skipped if the power limit is unchanged."""
         state = SystemState(
-            solar_surplus=2000, total_surplus=2000, chp_production=0, battery_soc=60, battery_power=0,
-            battery_charging=0, battery_discharging=0, grid_power=0, grid_import=0, grid_export=0,
-            solar_production=2000, miner_consumption=0, miner_power_limit=2000.0, last_updated="now", is_dry_run=False
+            solar_production=3000,
+            grid_power=-2500, grid_export=2500, grid_import=0,
+            solar_surplus=2500, total_surplus=2500, chp_production=0,
+            battery_soc=60, battery_power=0, battery_charging=0, battery_discharging=0,
+            miner_consumption=0, miner_power_limit=2000.0, last_updated="now", is_dry_run=False,
+            house_consumption=500, miner_surplus=2500
         )
         mock_app.get_state.return_value = "on"
 
@@ -128,9 +135,12 @@ class TestMinerHeaterHandler:
     def test_evaluate_and_act_skip_write_if_interval_not_passed(self, miner_heater_handler, mock_app, monkeypatch):
         """Test that a write is skipped if the minimum interval has not passed."""
         state = SystemState(
-            solar_surplus=3000, total_surplus=3000, chp_production=0, battery_soc=60, battery_power=0,
-            battery_charging=0, battery_discharging=0, grid_power=0, grid_import=0, grid_export=0,
-            solar_production=3000, miner_consumption=0, miner_power_limit=2000.0, last_updated="now", is_dry_run=False
+            solar_production=3000,
+            grid_power=-2500, grid_export=2500, grid_import=0,
+            solar_surplus=2500, total_surplus=2500, chp_production=0,
+            battery_soc=60, battery_power=0, battery_charging=0, battery_discharging=0,
+            miner_consumption=0, miner_power_limit=2000.0, last_updated="now", is_dry_run=False,
+            house_consumption=500, miner_surplus=2500
         )
 
         now = datetime.now(timezone.utc)
@@ -149,9 +159,12 @@ class TestMinerHeaterHandler:
     def test_evaluate_and_act_performs_write_when_conditions_met(self, miner_heater_handler, mock_app, monkeypatch):
         """Test that a write is performed when the limit changes and the interval has passed."""
         state = SystemState(
-            solar_surplus=3000, total_surplus=3000, chp_production=0, battery_soc=60, battery_power=0,
-            battery_charging=0, battery_discharging=0, grid_power=0, grid_import=0, grid_export=0,
-            solar_production=3000, miner_consumption=0, miner_power_limit=2000.0, last_updated="now", is_dry_run=False
+            solar_production=4000,
+            grid_power=-3500, grid_export=3500, grid_import=0,
+            solar_surplus=3500, total_surplus=3500, chp_production=0,
+            battery_soc=60, battery_power=0, battery_charging=0, battery_discharging=0,
+            miner_consumption=0, miner_power_limit=2000.0, last_updated="now", is_dry_run=False,
+            house_consumption=500, miner_surplus=3500
         )
         # Mock get_state to return 'off' for the switch, and a state with no last_write for the power limit
         mock_app.get_state.side_effect = [
@@ -175,9 +188,10 @@ class TestMinerHeaterHandler:
     def test_evaluate_and_act_with_miner_consumption(self, miner_heater_handler, mock_app):
         """Test that the handler correctly uses adjusted_surplus."""
         state = SystemState(
-            solar_surplus=1500, total_surplus=1500, chp_production=0, battery_soc=60, battery_power=0,
-            battery_charging=0, battery_discharging=0, grid_power=0, grid_import=0, grid_export=0,
-            solar_production=2500, miner_consumption=1000.0, miner_power_limit=1000.0, last_updated="now", is_dry_run=False
+            solar_surplus=1000, total_surplus=1000, chp_production=0, battery_soc=60, battery_power=0,
+            battery_charging=0, battery_discharging=0, grid_power=-1000, grid_import=0, grid_export=1000,
+            solar_production=2500, miner_consumption=1000.0, miner_power_limit=1000.0, last_updated="now", is_dry_run=False,
+            house_consumption=500, miner_surplus=2000
         )
         mock_app.get_state.side_effect = [ "on", { "state": "1000.0", "attributes": {} } ]
 
@@ -191,7 +205,7 @@ class TestEnergyController:
         """Tests a successful run of the control loop."""
         mock_state = Mock()
         # Configure attributes needed by handlers
-        mock_state.total_surplus = 2100
+        mock_state.miner_surplus = 2100
         mock_state.miner_consumption = 0
         mock_from_ha = Mock(return_value=mock_state)
         monkeypatch.setattr(SystemState, "from_home_assistant", mock_from_ha)
