@@ -207,6 +207,7 @@ class TestEnergyController:
         # Configure attributes needed by handlers
         mock_state.miner_surplus = 2100
         mock_state.miner_consumption = 0
+        mock_state.miner_power_limit = 0.0
         mock_from_ha = Mock(return_value=mock_state)
         monkeypatch.setattr(SystemState, "from_home_assistant", mock_from_ha)
 
