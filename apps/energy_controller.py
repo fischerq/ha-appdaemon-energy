@@ -3,6 +3,7 @@ from datetime import datetime, timezone
 from system_state import SystemState
 from miner_heater_handler import MinerHeaterHandler
 from battery_handler import BatteryHandler
+from chp_handler import ChpHandler
 
 class EnergyController(hass.Hass):
     """The main AppDaemon class for orchestrating energy devices."""
@@ -29,6 +30,11 @@ class EnergyController(hass.Hass):
             battery_config = self.args["battery_handler"]
             self.device_handlers.append(BatteryHandler(self, battery_config))
             self.log("Initialized BatteryHandler.")
+
+        if "chp_handler" in self.args:
+            chp_config = self.args["chp_handler"]
+            self.device_handlers.append(ChpHandler(self, chp_config))
+            self.log("Initialized ChpHandler.")
 
         # Add more handlers here for other devices, e.g., wallbox
 

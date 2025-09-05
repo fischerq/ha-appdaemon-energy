@@ -29,6 +29,7 @@ class SystemState:
     miner_intended_power_limit: Optional[float] = None
     miner_intended_switch_state: Optional[str] = None
     battery_intended_charge_switch_state: Optional[str] = None
+    chp_intended_switch_state: Optional[str] = None
 
     @classmethod
     def validate_sensors(cls, app: hass.Hass, sensors: dict) -> bool:
@@ -171,6 +172,7 @@ class SystemState:
             "miner_intended_power_limit": "miner_intended_power_limit",
             "miner_intended_switch_state": "miner_intended_switch_state",
             "battery_intended_charge_switch_state": "battery_intended_charge_switch_state",
+            "chp_intended_switch_state": "chp_intended_switch_state",
         }
 
         # Units for the sensors
@@ -225,6 +227,7 @@ class SystemState:
         """
         miner_config = app.args.get("miner_heater", {})
         battery_config = app.args.get("battery_handler", {})
+        chp_config = app.args.get("chp_handler", {})
 
         # Miner Actions
         if self.miner_intended_switch_state is not None:
@@ -269,3 +272,16 @@ class SystemState:
                             app.turn_off(entity)
                     else:
                         app.log(f"[DRY RUN] Would have turned {action} charging for {entity}")
+
+        # CHP Actions
+        if self.chp_intended_switch_state is not None:
+            entity = chp_config.get("switch_entity")
+            if entity and app.get_state(entity) != self.chp_intended_switch_state:
+                app.log(f"Intending to turn {self.chp_intended_switch_state} {entity}")
+                if not self.is_dry_run:
+                    if self.chp_intended_switch_state == 'on':
+                        app.turn_on(entity)
+                    else:
+                        app.turn_off(entity)
+                else:
+                    app.log(f"[DRY RUN] Would have turned {self.chp_intended_switch_state} {entity}")

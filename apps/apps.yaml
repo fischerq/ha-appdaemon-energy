@@ -19,6 +19,12 @@ energy_manager:
     activation_threshold: 2000
     max_power: 6000
     power_step: 1000
+    min_wait_time: 3
+
+  chp_handler:
+    switch_entity: switch.chp_plant # Please update this to your actual CHP switch entity
+    power_draw_threshold: 1000
+    min_wait_time: 3
 
   # Entities the controller will create/publish to
   publish_entities:
@@ -34,5 +40,8 @@ energy_manager:
     grid_export: sensor.controller_grid_export
     solar_production: sensor.controller_solar_production
     miner_consumption: sensor.controller_miner_consumption
+    miner_intended_switch_state: sensor.controller_miner_intended_switch_state
+    miner_intended_power_limit: sensor.controller_miner_intended_power_limit
+    chp_intended_switch_state: sensor.controller_chp_intended_switch_state
     controller_running: binary_sensor.controller_running
     last_successful_run: sensor.controller_last_successful_run
