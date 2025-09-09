@@ -58,15 +58,14 @@ class ChpHandler:
         miner_is_on = self.app.get_state(self.miner_switch_entity) == "on" if self.miner_switch_entity else False
 
         # Determine if the CHP should be on based on house consumption
-        should_be_on = state.house_consumption > self.power_draw_threshold
+        should_be_on = state.grid_import > self.power_draw_threshold
 
         if should_be_on:
             # Condition to turn on CHP is met
             if miner_is_on:
                 # If miner is on, we must turn it off first.
                 if self._can_toggle(self.miner_switch_entity, self.miner_min_wait_time_minutes):
-                    self.app.log(f"CHP: House consumption is high ({state.house_consumption}W > {self.power_draw_threshold}W), but miner is on. Turning miner off first.")
-                    state.miner_intended_switch_state = 'off'
+                    self.app.log(f"CHP: Drawing from grid ({state.grid_import}W > {self.power_draw_threshold}W), but miner is on. Waiting for miner to turn off first.")
                 # Do not proceed to turn on CHP in this cycle. Wait for the miner to be off.
             else:
                 # Miner is off, and we need power, so turn CHP on if it's currently off.

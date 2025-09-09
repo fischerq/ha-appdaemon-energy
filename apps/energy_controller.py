@@ -42,6 +42,9 @@ class EnergyController(hass.Hass):
         self.run_every(self.control_loop, "now", 60)
         self.log("Control loop scheduled to run every minute.")
 
+        # Run first control loop immediately
+        self.control_loop(None)
+
     def control_loop(self, kwargs):
         """The main control loop."""
         self.log("Running control loop...")
