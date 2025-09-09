@@ -16,7 +16,6 @@ class BatteryHandler:
         self.disable_charge_switch = self.config.get("disable_charge_switch")
         self.min_soc_for_chp_charging = self.config.get("min_soc_for_chp_charging", 50)
         self.min_chp_production_for_logic = self.config.get("min_chp_production_for_logic", 100)
-        self.max_solar_for_chp_logic = self.config.get("max_solar_for_chp_logic", 50)
 
     def evaluate_and_act(self, state: SystemState):
         """
@@ -31,7 +30,7 @@ class BatteryHandler:
 
         soc_is_high = state.battery_soc >= self.min_soc_for_chp_charging
         is_charging_from_chp_only = (state.chp_production >= self.min_chp_production_for_logic and
-                                     state.solar_production < self.max_solar_for_chp_logic)
+                                     state.grid_export < state.chp_production)
 
         # Condition to disable charging: SOC is high and the only significant power source is CHP.
         if soc_is_high and is_charging_from_chp_only:

@@ -112,7 +112,7 @@ class SystemState:
         battery_charging = max(0, battery_power)
         battery_discharging = max(0, -battery_power)
         # Solar surplus is the sum of power being sent to the grid and power being used to charge the battery
-        solar_surplus = grid_export + battery_charging - chp_production
+        solar_surplus = battery_power - grid_power - chp_production
         # Validate that solar surplus is not greater than solar production
         if solar_surplus > solar_production:
             app.log(f"Solar surplus ({solar_surplus}W) is greater than solar production ({solar_production}W). Setting surplus to production value.")
@@ -120,8 +120,8 @@ class SystemState:
         # Total surplus is the sum of solar surplus and CHP production
         total_surplus = solar_surplus + chp_production
 
-        # House consumption is the total consumption of the house, excluding the miner
-        house_consumption = solar_production + grid_import + battery_discharging + chp_production - (grid_export + battery_charging + miner_consumption)
+        # House consumption is the total production plus grid import, excluding the miner and battery charging
+        house_consumption = solar_production + chp_production + grid_import - battery_power - miner_consumption
 
         # Miner surplus is the solar power not used by the house, but counting power for mining or battery charging as available
         miner_surplus = solar_production - house_consumption

@@ -22,9 +22,14 @@ energy_manager:
     min_wait_time: 3
 
   chp_handler:
-    switch_entity: switch.chp_plant # Please update this to your actual CHP switch entity
+    switch_entity: input_boolean.dummy_toggle # Todo: real switch once Innotemp works
     power_draw_threshold: 1000
     min_wait_time: 3
+
+  battery_handler:
+    disable_charge_switch: switch.victron_vebus_disablecharge_227
+    min_soc_for_chp_charging: 50
+    min_chp_production_for_logic: 100
 
   # Entities the controller will create/publish to
   publish_entities:
@@ -43,5 +48,6 @@ energy_manager:
     miner_intended_switch_state: sensor.controller_miner_intended_switch_state
     miner_intended_power_limit: sensor.controller_miner_intended_power_limit
     chp_intended_switch_state: sensor.controller_chp_intended_switch_state
+    battery_intended_charge_switch_state: sensor.controller_battery_intended_charge_switch_state
     controller_running: binary_sensor.controller_running
     last_successful_run: sensor.controller_last_successful_run
