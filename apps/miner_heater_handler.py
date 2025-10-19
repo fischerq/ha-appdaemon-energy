@@ -2,6 +2,7 @@ import math
 from datetime import datetime, timezone
 import appdaemon.plugins.hass.hassapi as hass
 from system_state import SystemState
+from optimization_plan import OptimizationPlan
 
 class MinerHeaterHandler:
     """A class to contain all logic for controlling the miner."""
@@ -22,46 +23,58 @@ class MinerHeaterHandler:
         self.power_step = self.config.get("power_step", 1000)
         self.min_write_interval_seconds = self.config.get("min_write_interval_seconds", 60)
 
-    def evaluate_and_act(self, state: SystemState):
+    def evaluate_and_act(self, state: SystemState) -> bool:
         """
-        Main decision-making method to control the miner.
-        This method calculates the intended state and stores it in the SystemState object.
-        Args:
-            state: The current system state.
+        Main decision-making method for URGENT control of the miner.
+        Returns True if an action was taken, False otherwise.
         """
+        action_taken = False
         is_on = self.app.get_state(self.entity_id) == "on"
-
         adjusted_surplus = state.miner_surplus
+        should_be_on = adjusted_surplus >= self.activation_threshold
 
-        if adjusted_surplus >= self.activation_threshold:
-            # We want the miner to be on.
+        if should_be_on and not is_on:
+            self.app.log("MINER: Urgent action to turn ON due to high surplus.")
             state.miner_intended_switch_state = 'on'
-
-            # Only adjust power limit if the surplus is significantly different from the current limit
-            if abs(adjusted_surplus - state.miner_power_limit) >= self.power_step:
-                # Calculate new power limit
-                new_power_limit = min(self.max_power, self.activation_threshold + self.power_step * math.floor((adjusted_surplus - self.activation_threshold) / self.power_step))
-
-                if new_power_limit != state.miner_power_limit:
-                    # Check if we are allowed to write based on the interval
-                    power_limit_entity_state = self.app.get_state(self.power_limit_entity, attribute="all") or {}
-                    last_write_str = power_limit_entity_state.get("attributes", {}).get("last_write")
-
-                    can_write = False
-                    if last_write_str is None:
-                        can_write = True
-                    else:
-                        last_write_dt = datetime.fromisoformat(last_write_str)
-                        time_since_last_write = (datetime.now(timezone.utc) - last_write_dt).total_seconds()
-                        if time_since_last_write >= self.min_write_interval_seconds:
-                            can_write = True
-
-                    if can_write:
-                        state.miner_intended_power_limit = new_power_limit
-                    else:
-                        self.app.log(f"Skipping miner power limit write for {self.power_limit_entity} due to minimum interval. New limit would be {new_power_limit}W.")
-        else:
-            # We want the miner to be off.
+            action_taken = True
+        elif not should_be_on and is_on:
+            self.app.log("MINER: Urgent action to turn OFF due to low surplus.")
             state.miner_intended_switch_state = 'off'
             state.miner_intended_power_limit = 0
+            action_taken = True
 
+        if should_be_on:
+            new_power_limit = min(self.max_power, self.activation_threshold + self.power_step * math.floor((adjusted_surplus - self.activation_threshold) / self.power_step))
+            if abs(new_power_limit - state.miner_power_limit) >= self.power_step:
+                power_limit_entity_state = self.app.get_state(self.power_limit_entity, attribute="all") or {}
+                last_write_str = power_limit_entity_state.get("attributes", {}).get("last_write")
+                can_write = False
+                if last_write_str is None:
+                    can_write = True
+                else:
+                    last_write_dt = datetime.fromisoformat(last_write_str)
+                    time_since_last_write = (datetime.now(timezone.utc) - last_write_dt).total_seconds()
+                    if time_since_last_write >= self.min_write_interval_seconds:
+                        can_write = True
+                
+                if can_write:
+                    self.app.log(f"MINER: Urgent action to set power limit to {new_power_limit}W.")
+                    state.miner_intended_power_limit = new_power_limit
+                    action_taken = True
+
+        return action_taken
+
+    def execute_planned_action(self, state: SystemState, plan: OptimizationPlan, minute_of_day: int):
+        """Executes a planned action from the optimization plan."""
+        planned_action = plan.get_action_for_handler("miner_heater", minute_of_day)
+        if planned_action is None:
+            return
+
+        is_on = self.app.get_state(self.entity_id) == "on"
+        planned_on = planned_action == 'on'
+
+        if planned_on != is_on:
+            self.app.log(f"MINER: Executing planned action to turn {planned_action}.")
+            state.miner_intended_switch_state = planned_action
+            if not planned_on:
+                state.miner_intended_power_limit = 0

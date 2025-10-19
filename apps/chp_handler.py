@@ -1,6 +1,7 @@
 import appdaemon.plugins.hass.hassapi as hass
 from system_state import SystemState
 from datetime import datetime, timezone
+from optimization_plan import OptimizationPlan
 
 class ChpHandler:
     """A class to contain all logic for controlling the CHP plant."""
@@ -50,10 +51,12 @@ class ChpHandler:
                 return False
         return True
 
-    def evaluate_and_act(self, state: SystemState):
+    def evaluate_and_act(self, state: SystemState) -> bool:
         """
-        Main decision-making method to control the CHP.
+        Main decision-making method for URGENT control of the CHP.
+        Returns True if an action was taken, False otherwise.
         """
+        action_taken = False
         chp_is_on = self.app.get_state(self.entity_id) == "on"
         miner_is_on = self.app.get_state(self.miner_switch_entity) == "on" if self.miner_switch_entity else False
 
@@ -73,9 +76,27 @@ class ChpHandler:
                     if self._can_toggle(self.entity_id, self.min_wait_time_minutes):
                         self.app.log(f"CHP: House consumption is high ({state.house_consumption}W > {self.power_draw_threshold}W) and miner is off. Turning CHP on.")
                         state.chp_intended_switch_state = 'on'
+                        action_taken = True
         else:
             # Condition to turn on CHP is not met, so it should be off.
             if chp_is_on:
                 if self._can_toggle(self.entity_id, self.min_wait_time_minutes):
                     self.app.log(f"CHP: House consumption is low ({state.house_consumption}W <= {self.power_draw_threshold}W). Turning CHP off.")
                     state.chp_intended_switch_state = 'off'
+                    action_taken = True
+        return action_taken
+
+    def execute_planned_action(self, state: SystemState, plan: OptimizationPlan, minute_of_day: int):
+        """Executes a planned action from the optimization plan."""
+        planned_action = plan.get_action_for_handler("chp_handler", minute_of_day)
+        if planned_action is None:
+            return
+
+        chp_is_on = self.app.get_state(self.entity_id) == "on"
+
+        # Check if the planned action is different from the current state
+        if (planned_action == "on" and not chp_is_on) or \
+           (planned_action == "off" and chp_is_on):
+            if self._can_toggle(self.entity_id, self.min_wait_time_minutes):
+                self.app.log(f"CHP: Executing planned action to turn {planned_action}.")
+                state.chp_intended_switch_state = planned_action
