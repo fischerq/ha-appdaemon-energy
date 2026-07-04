@@ -1,37 +1,83 @@
-
 import appdaemon.plugins.hass.hassapi as hass
+from system_state import SystemState
+
 
 class WallboxHandler:
-    """Handles all control logic for the EV Wallbox."""
+    """A class to contain all logic for controlling the EV wallbox."""
 
-    def __init__(self, app: hass.Hass, config: dict):
+    # Ignore power-limit differences below this threshold to avoid
+    # rewriting the limit every cycle over sensor noise.
+    POWER_DEADBAND_W = 50
+
+    def __init__(self, app, config):
+        """
+        Initializes the handler.
+        Args:
+            app: The AppDaemon app instance.
+            config: The configuration dictionary for this handler.
+        """
         self.app = app
         self.config = config
-        self.power_sensor = config["power_sensor"]
-        self.fast_charge_switch = config["fast_charge_switch"]
-        self.power_limit_entity = config["power_limit_entity"]
-        self.min_surplus_for_charging = config.get("min_surplus_for_charging", 500) # Minimum surplus to start charging
-        self.max_power = config.get("max_power", 11000) # Max power of the wallbox
+        self.power_sensor = self.config.get("power_sensor")
+        self.fast_charge_switch = self.config.get("fast_charge_switch")
+        self.power_limit_entity = self.config.get("power_limit_entity")
+        self.min_surplus_for_charging = self.config.get("min_surplus_for_charging", 500)
+        self.max_power = self.config.get("max_power", 11000)
 
-    def evaluate_and_act(self, state: "SystemState"):
-        """Evaluates wallbox state and acts based on surplus power."""
-        is_fast_charging = self.app.get_state(self.fast_charge_switch) == "on"
+    def _read_float(self, entity_id, default=0.0):
+        """Reads an entity state as float, tolerating unknown/unavailable."""
+        value = self.app.get_state(entity_id)
+        try:
+            return float(value)
+        except (TypeError, ValueError):
+            return default
 
-        if is_fast_charging:
-            # If fast charging is on, do nothing (manual override)
-            self.app.log("Wallbox fast charging is manually enabled. No automatic adjustments.")
-            return
+    def evaluate_and_act(self, state: SystemState) -> bool:
+        """
+        Adjusts the wallbox charge power based on the available solar surplus.
+        The intended limit is stored in the SystemState object and applied by
+        execute_actions(), which also honours dry-run mode.
+        Returns True if an action was requested, False otherwise.
+        """
+        if not self.power_limit_entity:
+            self.app.log(
+                "`power_limit_entity` is not configured for WallboxHandler. Skipping."
+            )
+            return False
 
-        current_power = float(self.app.get_state(self.power_sensor, default=0))
+        if (
+            self.fast_charge_switch
+            and self.app.get_state(self.fast_charge_switch) == "on"
+        ):
+            # Manual override: never touch the wallbox while fast charge is on.
+            self.app.log(
+                "Wallbox fast charging is manually enabled. No automatic adjustments."
+            )
+            return False
 
-        # Logic for surplus charging
-        if state.pv_surplus > self.min_surplus_for_charging:
-            # We have surplus, let's charge
-            charge_power = state.pv_surplus
-            self.app.log(f"Setting wallbox charge power to {charge_power}W based on surplus.")
-            self.app.call_service("number/set_value", entity_id=self.power_limit_entity, value=charge_power)
+        current_power = (
+            self._read_float(self.power_sensor) if self.power_sensor else 0.0
+        )
 
+        # The wallbox's own draw already reduced the measured surplus, so the
+        # power available for charging is the surplus plus what the wallbox is
+        # currently consuming. Without this the limit would oscillate.
+        available_power = state.solar_surplus + current_power
+
+        if available_power > self.min_surplus_for_charging:
+            target_limit = round(min(available_power, self.max_power), 2)
         elif current_power > 0:
-            # No surplus, but it is still charging, so we stop it.
-            self.app.log("No PV surplus. Stopping wallbox charging.")
-            self.app.call_service("number/set_value", entity_id=self.power_limit_entity, value=0)
+            # Not enough surplus but the car is still charging: stop it.
+            target_limit = 0.0
+        else:
+            return False
+
+        current_limit = self._read_float(self.power_limit_entity)
+        if abs(target_limit - current_limit) < self.POWER_DEADBAND_W:
+            return False
+
+        self.app.log(
+            f"WALLBOX: Setting charge power limit to {target_limit}W (available: {available_power}W)."
+        )
+        state.wallbox_intended_power_limit = target_limit
+        return True

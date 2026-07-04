@@ -1,43 +1,31 @@
 # Modular AppDaemon Energy Controller
 
-This AppDaemon application provides a modular and extensible energy controller for Home Assistant. It is designed to manage various energy-consuming devices based on real-time system conditions like PV surplus and battery state of charge.
+This AppDaemon application provides a modular and extensible energy controller for Home Assistant. It manages energy-producing and -consuming devices (Bitcoin miner used as heater, CHP plant, battery, EV wallbox) based on real-time system conditions like solar surplus and battery state of charge.
 
 ## Project Goal
 
-The primary objective is to create a configuration-driven energy management system within AppDaemon. The system is built with a modular architecture, allowing for easy addition of new devices and control logic without modifying the core controller.
+The primary objective is a configuration-driven energy management system within AppDaemon. The system is built with a modular architecture, allowing for easy addition of new devices and control logic without modifying the core controller.
 
-The controller orchestrates one or more "Device Handlers," each responsible for the logic of a specific device. It also publishes its own internal state back to Home Assistant, providing visibility into its calculations and decisions.
+The controller orchestrates one or more "Device Handlers," each responsible for the logic of a specific device. Handlers record *intended* actions on a shared `SystemState` object; the controller then executes those intents in one place, which also implements the global dry-run mode. The controller publishes its internal state back to Home Assistant, providing visibility into its calculations and decisions, and can optionally attribute energy flows from producers to consumers.
 
 For a detailed explanation of the architecture, class structure, and logic, please see the [DESIGN.md](DESIGN.md) file.
 
 ## Setup and Configuration
 
-1.  **Install AppDaemon:** Ensure you have a working AppDaemon setup.
-2.  **Copy Files:** Place the `apps/energy_manager.py` file into your AppDaemon `apps` directory and the `apps/apps.yaml` configuration into your `apps` folder.
-3.  **Configure `apps.yaml`:** Modify the `apps/apps.yaml` file to match your Home Assistant entity IDs and desired control parameters. The system is configured as follows:
+1.  **Install AppDaemon:** Ensure you have a working AppDaemon setup (`pip install -r requirements.txt`).
+2.  **Copy Files:** Place all Python modules from `apps/` and the `apps/apps.yaml` configuration into your AppDaemon `apps` directory.
+3.  **Configure `apps.yaml`:** Modify `apps/apps.yaml` to match your Home Assistant entity IDs and desired control parameters. See the comments in that file for the available options. Each handler section (`miner_heater`, `chp_handler`, `battery_handler`, `wallbox`) is optional — a handler is only instantiated when its section is present. The same applies to the attribution engine (`priority` + `publish_attribution_entity`).
+4.  **Dry-run mode:** Point `dry_run_switch_entity` at an `input_boolean`. While it is `on`, the controller logs and publishes everything it *would* do without touching any devices.
+5.  **Reload AppDaemon:** Reload your AppDaemon apps to start the energy controller.
 
-    ```yaml
-    energy_manager:
-      module: energy_manager
-      class: EnergyController
+## Development
 
-      # Input sensors the controller reads from
-      sensors:
-        grid_power: sensor.grid_power
-        battery_soc: sensor.battery_soc
-        heating_demand_boolean: input_boolean.heating_demand
+Tests do not require the AppDaemon runtime (it is stubbed in `tests/conftest.py`):
 
-      # Configuration for the first device handler
-      miner_heater:
-        switch_entity: switch.bitcoin_miner
-        power_draw: 2000
-        min_battery_soc: 95
-      
-      # Entities the controller will create/publish to
-      publish_entities:
-        pv_surplus: sensor.controller_pv_surplus
-        battery_soc: sensor.controller_battery_soc
-        heating_demand: binary_sensor.controller_heating_demand
-    ```
+```bash
+pip install -r requirements-dev.txt
+pytest
+black --check .
+```
 
-4.  **Reload AppDaemon:** Reload your AppDaemon apps to start the energy controller.
+The suite contains unit tests per module plus end-to-end tests (`tests/test_e2e_controller.py`) that drive the full control loop against a simulated Home Assistant state machine.
