@@ -3,6 +3,7 @@ from system_state import SystemState
 from datetime import datetime, timezone
 from optimization_plan import OptimizationPlan
 
+
 class ChpHandler:
     """A class to contain all logic for controlling the CHP plant."""
 
@@ -25,11 +26,10 @@ class ChpHandler:
         # The user requested a configurable min wait time for the miner as well.
         self.miner_min_wait_time_minutes = miner_config.get("min_wait_time", 3)
 
-
     def _can_toggle(self, entity_id, min_wait_minutes):
         """Checks if an entity can be toggled based on its last_changed attribute."""
         if not entity_id:
-            return True # Nothing to check against
+            return True  # Nothing to check against
 
         last_changed_str = self.app.get_state(entity_id, attribute="last_changed")
         if last_changed_str:
@@ -39,15 +39,19 @@ class ChpHandler:
             else:
                 last_changed_dt = datetime.fromisoformat(last_changed_str)
 
-            # Ensure the datetime is timezone-aware for comparison
+            # Ensure the datetime is timezone-aware for comparison.
+            # Home Assistant reports last_changed in UTC, so treat naive
+            # values as UTC rather than local time.
             if last_changed_dt.tzinfo is None:
-                last_changed_dt = last_changed_dt.astimezone()
+                last_changed_dt = last_changed_dt.replace(tzinfo=timezone.utc)
 
             now = datetime.now(timezone.utc)
             time_since_last_change_seconds = (now - last_changed_dt).total_seconds()
 
             if time_since_last_change_seconds < min_wait_minutes * 60:
-                self.app.log(f"Cannot toggle {entity_id}. Only {time_since_last_change_seconds:.0f}s of {min_wait_minutes*60}s elapsed.")
+                self.app.log(
+                    f"Cannot toggle {entity_id}. Only {time_since_last_change_seconds:.0f}s of {min_wait_minutes*60}s elapsed."
+                )
                 return False
         return True
 
@@ -56,38 +60,64 @@ class ChpHandler:
         Main decision-making method for URGENT control of the CHP.
         Returns True if an action was taken, False otherwise.
         """
+        if not self.entity_id:
+            self.app.log("`switch_entity` is not configured for ChpHandler. Skipping.")
+            return False
+
         action_taken = False
         chp_is_on = self.app.get_state(self.entity_id) == "on"
-        miner_is_on = self.app.get_state(self.miner_switch_entity) == "on" if self.miner_switch_entity else False
+        miner_is_on = (
+            self.app.get_state(self.miner_switch_entity) == "on"
+            if self.miner_switch_entity
+            else False
+        )
 
-        # Determine if the CHP should be on based on house consumption
+        # Determine if the CHP should be on based on grid draw
         should_be_on = state.grid_import > self.power_draw_threshold
 
         if should_be_on:
             # Condition to turn on CHP is met
             if miner_is_on:
-                # If miner is on, we must turn it off first.
-                if self._can_toggle(self.miner_switch_entity, self.miner_min_wait_time_minutes):
-                    self.app.log(f"CHP: Drawing from grid ({state.grid_import}W > {self.power_draw_threshold}W), but miner is on. Waiting for miner to turn off first.")
-                # Do not proceed to turn on CHP in this cycle. Wait for the miner to be off.
+                # If the miner is on, it must be turned off before the CHP may
+                # start. Request the shutdown (overriding any earlier miner
+                # intent from this cycle) and wait for a later cycle to start
+                # the CHP once the miner is actually off.
+                if self._can_toggle(
+                    self.miner_switch_entity, self.miner_min_wait_time_minutes
+                ):
+                    self.app.log(
+                        f"CHP: Drawing from grid ({state.grid_import}W > {self.power_draw_threshold}W), but miner is on. Turning miner off first."
+                    )
+                    state.miner_intended_switch_state = "off"
+                    state.miner_intended_power_limit = 0
+                    action_taken = True
             else:
                 # Miner is off, and we need power, so turn CHP on if it's currently off.
                 if not chp_is_on:
                     if self._can_toggle(self.entity_id, self.min_wait_time_minutes):
-                        self.app.log(f"CHP: House consumption is high ({state.house_consumption}W > {self.power_draw_threshold}W) and miner is off. Turning CHP on.")
-                        state.chp_intended_switch_state = 'on'
+                        self.app.log(
+                            f"CHP: Grid import is high ({state.grid_import}W > {self.power_draw_threshold}W) and miner is off. Turning CHP on."
+                        )
+                        state.chp_intended_switch_state = "on"
                         action_taken = True
         else:
             # Condition to turn on CHP is not met, so it should be off.
             if chp_is_on:
                 if self._can_toggle(self.entity_id, self.min_wait_time_minutes):
-                    self.app.log(f"CHP: House consumption is low ({state.house_consumption}W <= {self.power_draw_threshold}W). Turning CHP off.")
-                    state.chp_intended_switch_state = 'off'
+                    self.app.log(
+                        f"CHP: Grid import is low ({state.grid_import}W <= {self.power_draw_threshold}W). Turning CHP off."
+                    )
+                    state.chp_intended_switch_state = "off"
                     action_taken = True
         return action_taken
 
-    def execute_planned_action(self, state: SystemState, plan: OptimizationPlan, minute_of_day: int):
+    def execute_planned_action(
+        self, state: SystemState, plan: OptimizationPlan, minute_of_day: int
+    ):
         """Executes a planned action from the optimization plan."""
+        if not self.entity_id:
+            return
+
         planned_action = plan.get_action_for_handler("chp_handler", minute_of_day)
         if planned_action is None:
             return
@@ -95,8 +125,9 @@ class ChpHandler:
         chp_is_on = self.app.get_state(self.entity_id) == "on"
 
         # Check if the planned action is different from the current state
-        if (planned_action == "on" and not chp_is_on) or \
-           (planned_action == "off" and chp_is_on):
+        if (planned_action == "on" and not chp_is_on) or (
+            planned_action == "off" and chp_is_on
+        ):
             if self._can_toggle(self.entity_id, self.min_wait_time_minutes):
                 self.app.log(f"CHP: Executing planned action to turn {planned_action}.")
                 state.chp_intended_switch_state = planned_action

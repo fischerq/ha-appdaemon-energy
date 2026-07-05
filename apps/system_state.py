@@ -3,9 +3,11 @@ from dataclasses import dataclass, asdict
 from datetime import datetime, timezone
 from typing import Optional
 
+
 @dataclass(kw_only=True)
 class SystemState:
     """A dataclass to act as a data container for system state."""
+
     # Sensor values
     solar_surplus: float
     total_surplus: float
@@ -30,6 +32,7 @@ class SystemState:
     miner_intended_switch_state: Optional[str] = None
     battery_intended_charge_switch_state: Optional[str] = None
     chp_intended_switch_state: Optional[str] = None
+    wallbox_intended_power_limit: Optional[float] = None
 
     @classmethod
     def validate_sensors(cls, app: hass.Hass, sensors: dict) -> bool:
@@ -44,20 +47,23 @@ class SystemState:
             True if all sensors are valid, False otherwise.
         """
         for sensor_name, entity_id in sensors.items():
+            state = app.get_state(entity_id)
+            if state is None:
+                app.error(f"Sensor '{sensor_name}' ({entity_id}) does not exist.")
+                return False
+            # The miner reports 'unknown'/'unavailable' while it is powered off,
+            # which is a valid state for this one sensor.
+            if sensor_name == "miner_consumption" and state in (
+                "unknown",
+                "unavailable",
+            ):
+                continue
             try:
-                state = app.get_state(entity_id)
-                if state is None:
-                    app.error(f"Sensor '{sensor_name}' ({entity_id}) does not exist.")
-                    return False
-                if sensor_name == "miner_consumption":
-                    if state == "unknown":
-                        continue
-                    else:
-                        float(state) 
-                else:
-                    float(state)
+                float(state)
             except (TypeError, ValueError):
-                app.error(f"Sensor '{sensor_name}' ({entity_id}) has a non-numeric state: {state}")
+                app.error(
+                    f"Sensor '{sensor_name}' ({entity_id}) has a non-numeric state: {state}"
+                )
                 return False
         app.log("All sensors validated successfully.")
         return True
@@ -77,23 +83,31 @@ class SystemState:
         if dry_run_switch_entity:
             raw_dry_run_state = app.get_state(dry_run_switch_entity)
             app.log(f"Raw dry-run switch state: '{raw_dry_run_state}'")
-            is_dry_run = (raw_dry_run_state == "on")
+            is_dry_run = raw_dry_run_state == "on"
         grid_power_sensor = app.args["sensors"]["grid_power"]
         battery_soc_sensor = app.args["sensors"]["battery_soc"]
         battery_power_sensor = app.args["sensors"]["battery_power"]
         solar_production_sensor = app.args["sensors"]["solar_production"]
         miner_consumption_sensor = app.args["sensors"]["miner_consumption"]
         chp_production_sensor = app.args["sensors"]["chp_production"]
-        miner_power_limit_entity = app.args.get("miner_heater", {}).get("power_limit_entity")
+        miner_power_limit_entity = app.args.get("miner_heater", {}).get(
+            "power_limit_entity"
+        )
         try:
             grid_power = float(app.get_state(grid_power_sensor))
             battery_soc = float(app.get_state(battery_soc_sensor))
             battery_power = float(app.get_state(battery_power_sensor))
-            solar_production = float(app.get_state(solar_production_sensor)) * 1000 # convert kW to W
+            solar_production = (
+                float(app.get_state(solar_production_sensor)) * 1000
+            )  # convert kW to W
             chp_production = float(app.get_state(chp_production_sensor))
 
             miner_consumption_value = app.get_state(miner_consumption_sensor)
-            miner_consumption = float(miner_consumption_value) if miner_consumption_value not in ("unknown", "unavailable", None) else 0.0
+            miner_consumption = (
+                float(miner_consumption_value)
+                if miner_consumption_value not in ("unknown", "unavailable", None)
+                else 0.0
+            )
 
             miner_power_limit = 0.0
             if miner_power_limit_entity:
@@ -104,7 +118,7 @@ class SystemState:
         except (TypeError, ValueError) as e:
             app.error(f"Error retrieving sensor data: {e}")
             return None
-        
+
         # Positive grid power is drawing from grid, negative is sending power to grid
         grid_import = max(0, grid_power)
         grid_export = max(0, -grid_power)
@@ -115,13 +129,24 @@ class SystemState:
         solar_surplus = battery_power - grid_power - chp_production
         # Validate that solar surplus is not greater than solar production
         if solar_surplus > solar_production:
-            app.log(f"Solar surplus ({solar_surplus}W) is greater than solar production ({solar_production}W). Setting surplus to production value.")
+            app.log(
+                f"Solar surplus ({solar_surplus}W) is greater than solar production ({solar_production}W). Setting surplus to production value."
+            )
             solar_surplus = solar_production
         # Total surplus is the sum of solar surplus and CHP production
         total_surplus = solar_surplus + chp_production
 
-        # House consumption is the total production plus grid import, excluding the miner and battery charging
-        house_consumption = solar_production + chp_production + grid_import - battery_power - miner_consumption
+        # House consumption is the power consumed locally by the house itself:
+        # everything produced or imported, minus what leaves via grid export,
+        # battery charging (net) and the miner. Using the signed grid_power
+        # (import positive, export negative) keeps this correct while exporting.
+        house_consumption = (
+            solar_production
+            + chp_production
+            + grid_power
+            - battery_power
+            - miner_consumption
+        )
 
         # Miner surplus is the solar power not used by the house, but counting power for mining or battery charging as available
         miner_surplus = solar_production - house_consumption
@@ -150,7 +175,7 @@ class SystemState:
 
     def publish_to_ha(self, hass_app, publish_entities):
         """Publishes the controller's internal state to Home Assistant sensors."""
-        
+
         # Mapping from SystemState attributes to HA entity keys
         attribute_entity_map = {
             "solar_surplus": "solar_surplus",
@@ -173,6 +198,7 @@ class SystemState:
             "miner_intended_switch_state": "miner_intended_switch_state",
             "battery_intended_charge_switch_state": "battery_intended_charge_switch_state",
             "chp_intended_switch_state": "chp_intended_switch_state",
+            "wallbox_intended_power_limit": "wallbox_intended_power_limit",
         }
 
         # Units for the sensors
@@ -193,6 +219,7 @@ class SystemState:
             "house_consumption": "W",
             "miner_surplus": "W",
             "miner_intended_power_limit": "W",
+            "wallbox_intended_power_limit": "W",
         }
 
         state_dict = asdict(self)
@@ -215,10 +242,14 @@ class SystemState:
                     final_state = "on" if value else "off"
 
                 hass_app.set_state(entity_id, state=final_state, attributes=attributes)
-        
-        hass_app.set_state(publish_entities["controller_running"], state="on")
-        hass_app.set_state(publish_entities["last_successful_run"], state=self.last_updated)
-        
+
+        if "controller_running" in publish_entities:
+            hass_app.set_state(publish_entities["controller_running"], state="on")
+        if "last_successful_run" in publish_entities:
+            hass_app.set_state(
+                publish_entities["last_successful_run"], state=self.last_updated
+            )
+
         hass_app.log("Published controller state to Home Assistant.")
 
     def execute_actions(self, app: hass.Hass):
@@ -228,40 +259,57 @@ class SystemState:
         miner_config = app.args.get("miner_heater", {})
         battery_config = app.args.get("battery_handler", {})
         chp_config = app.args.get("chp_handler", {})
+        wallbox_config = app.args.get("wallbox", {})
 
         # Miner Actions
         if self.miner_intended_switch_state is not None:
             entity = miner_config.get("switch_entity")
             if entity and app.get_state(entity) != self.miner_intended_switch_state:
-                app.log(f"Intending to turn {self.miner_intended_switch_state} {entity}")
+                app.log(
+                    f"Intending to turn {self.miner_intended_switch_state} {entity}"
+                )
                 if not self.is_dry_run:
-                    if self.miner_intended_switch_state == 'on':
+                    if self.miner_intended_switch_state == "on":
                         app.turn_on(entity)
                     else:
                         app.turn_off(entity)
                 else:
-                    app.log(f"[DRY RUN] Would have turned {self.miner_intended_switch_state} {entity}")
+                    app.log(
+                        f"[DRY RUN] Would have turned {self.miner_intended_switch_state} {entity}"
+                    )
 
         if self.miner_intended_power_limit is not None:
             entity = miner_config.get("power_limit_entity")
             if entity:
-                app.log(f"Intending to set miner power limit for {entity} to {self.miner_intended_power_limit} W.")
+                app.log(
+                    f"Intending to set miner power limit for {entity} to {self.miner_intended_power_limit} W."
+                )
                 if not self.is_dry_run:
-                    power_limit_entity_state = app.get_state(entity, attribute="all") or {}
+                    power_limit_entity_state = (
+                        app.get_state(entity, attribute="all") or {}
+                    )
                     current_attributes = power_limit_entity_state.get("attributes", {})
                     new_attributes = current_attributes.copy()
-                    new_attributes["last_write"] = datetime.now(timezone.utc).isoformat()
-                    app.set_state(entity, state=self.miner_intended_power_limit, attributes=new_attributes)
+                    new_attributes["last_write"] = datetime.now(
+                        timezone.utc
+                    ).isoformat()
+                    app.set_state(
+                        entity,
+                        state=self.miner_intended_power_limit,
+                        attributes=new_attributes,
+                    )
                 else:
-                    app.log(f"[DRY RUN] Would have set power limit for {entity} to {self.miner_intended_power_limit} W.")
+                    app.log(
+                        f"[DRY RUN] Would have set power limit for {entity} to {self.miner_intended_power_limit} W."
+                    )
 
         # Battery Actions
         if self.battery_intended_charge_switch_state is not None:
             entity = battery_config.get("disable_charge_switch")
             if entity:
                 # Note: 'on' means disabled, 'off' means enabled.
-                current_state_is_on = app.get_state(entity) == 'on'
-                intend_to_be_on = self.battery_intended_charge_switch_state == 'on'
+                current_state_is_on = app.get_state(entity) == "on"
+                intend_to_be_on = self.battery_intended_charge_switch_state == "on"
                 if current_state_is_on != intend_to_be_on:
                     action = "ON to disable" if intend_to_be_on else "OFF to enable"
                     app.log(f"Intending to turn {action} charging for {entity}")
@@ -271,7 +319,27 @@ class SystemState:
                         else:
                             app.turn_off(entity)
                     else:
-                        app.log(f"[DRY RUN] Would have turned {action} charging for {entity}")
+                        app.log(
+                            f"[DRY RUN] Would have turned {action} charging for {entity}"
+                        )
+
+        # Wallbox Actions
+        if self.wallbox_intended_power_limit is not None:
+            entity = wallbox_config.get("power_limit_entity")
+            if entity:
+                app.log(
+                    f"Intending to set wallbox charge power for {entity} to {self.wallbox_intended_power_limit} W."
+                )
+                if not self.is_dry_run:
+                    app.call_service(
+                        "number/set_value",
+                        entity_id=entity,
+                        value=self.wallbox_intended_power_limit,
+                    )
+                else:
+                    app.log(
+                        f"[DRY RUN] Would have set wallbox charge power for {entity} to {self.wallbox_intended_power_limit} W."
+                    )
 
         # CHP Actions
         if self.chp_intended_switch_state is not None:
@@ -279,9 +347,11 @@ class SystemState:
             if entity and app.get_state(entity) != self.chp_intended_switch_state:
                 app.log(f"Intending to turn {self.chp_intended_switch_state} {entity}")
                 if not self.is_dry_run:
-                    if self.chp_intended_switch_state == 'on':
+                    if self.chp_intended_switch_state == "on":
                         app.turn_on(entity)
                     else:
                         app.turn_off(entity)
                 else:
-                    app.log(f"[DRY RUN] Would have turned {self.chp_intended_switch_state} {entity}")
+                    app.log(
+                        f"[DRY RUN] Would have turned {self.chp_intended_switch_state} {entity}"
+                    )

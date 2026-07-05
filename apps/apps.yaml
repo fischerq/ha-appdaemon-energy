@@ -1,46 +1,76 @@
 energy_manager:
-  module: energy_manager
+  module: energy_controller
   class: EnergyController
+  dry_run_switch_entity: input_boolean.energy_controller_dry_run
 
-  # --- 1. Config for OLD Simple Control Logic ---
-  sensors_simple:
+  # Input sensors the controller reads from
+  sensors:
     grid_power: sensor.grid_power
-    battery_soc: sensor.battery_soc
-    heating_demand_boolean: input_boolean.heating_demand
-  
-  miner_heater:
-    switch_entity: switch.bitcoin_miner
-    power_draw: 2000
-    min_battery_soc: 95
+    battery_soc: sensor.victron_battery_soc
+    battery_power: sensor.victron_system_battery_power
+    solar_production: sensor.envoy_122327001496_aktuelle_stromproduktion
+    miner_consumption: sensor.deiner_miner_consumption
+    chp_production: sensor.96464_nm102
 
-  # --- NEW: Wallbox Handler Config ---
+  # Configuration for the device handlers
+  miner_heater:
+    switch_entity: switch.deiner_active
+    power_limit_entity: number.deiner_power_limit
+    activation_threshold: 2000
+    max_power: 6000
+    power_step: 1000
+    min_wait_time: 3
+
+  chp_handler:
+    switch_entity: input_boolean.dummy_toggle # Todo: real switch once Innotemp works
+    power_draw_threshold: 1000
+    min_wait_time: 3
+
+  battery_handler:
+    disable_charge_switch: switch.victron_vebus_disablecharge_227
+    min_soc_for_chp_charging: 50
+    min_chp_production_for_logic: 100
+    max_solar_for_chp_logic: 50
+
   wallbox:
-    power_sensor: sensor.wallbox_power
+    power_sensor: sensor.wallbox_leistung
     fast_charge_switch: input_boolean.wallbox_fast_charge
     power_limit_entity: number.wallbox_charge_power
     min_surplus_for_charging: 500
     max_power: 11000
-  
-  publish_entities_simple:
-    pv_surplus: sensor.controller_pv_surplus
+
+  # Entities the controller will create/publish to
+  publish_entities:
+    total_surplus: sensor.controller_total_surplus
+    solar_surplus: sensor.controller_solar_surplus
+    chp_production: sensor.controller_chp_production
     battery_soc: sensor.controller_battery_soc
-    heating_demand: binary_sensor.controller_heating_demand
+    battery_power: sensor.controller_battery_power
+    battery_charging: sensor.controller_battery_charging
+    battery_discharging: sensor.controller_battery_discharging
+    grid_power: sensor.controller_grid_power
+    grid_import: sensor.controller_grid_import
+    grid_export: sensor.controller_grid_export
+    solar_production: sensor.controller_solar_production
+    miner_consumption: sensor.controller_miner_consumption
+    miner_power_limit: sensor.controller_miner_power_limit
+    house_consumption: sensor.controller_house_consumption
+    miner_surplus: sensor.controller_miner_surplus
+    is_dry_run: binary_sensor.controller_is_dry_run
+    miner_intended_switch_state: sensor.controller_miner_intended_switch_state
+    miner_intended_power_limit: sensor.controller_miner_intended_power_limit
+    chp_intended_switch_state: sensor.controller_chp_intended_switch_state
+    battery_intended_charge_switch_state: sensor.controller_battery_intended_charge_switch_state
+    wallbox_intended_power_limit: sensor.controller_wallbox_intended_power_limit
+    controller_running: binary_sensor.controller_running
+    last_successful_run: sensor.controller_last_successful_run
 
-  # --- 2. NEW Config for Attribution Engine ---
-  
-  # Power sensors (endpoints) for attribution
-  sensors_power:
-    pv_power: sensor.pv_leistung
-    grid_power: sensor.netz_leistung # Positive=Import, Negative=Export
-    battery_power: sensor.batterie_leistung # Positive=Charge, Negative=Discharge
-    miner_power: sensor.bitcoin_miner_stromverbrauch
-    wallbox_power: sensor.wallbox_leistung
-
-  # Priority lists for the engine
+  # Optional: priority lists for the energy-flow attribution engine
   priority:
     # Which sources are used first? (Cheapest/most preferred first)
     production:
       - pv
+      - chp
       - battery
       - grid
     # Which loads are satisfied first? (Most critical first)
@@ -49,7 +79,7 @@ energy_manager:
       - battery
       - wallbox # Charge with surplus before miner
       - miner
-      - grid       # Grid export has the lowest priority
-  
-  # The single entity to publish the full matrix to
+      - grid # Grid export has the lowest priority
+
+  # The single entity to publish the full attribution matrix to
   publish_attribution_entity: sensor.energy_flow_attribution

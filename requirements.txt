@@ -1,3 +1,4 @@
+# Runtime dependency: only needed on the machine that actually runs AppDaemon.
+# Tests stub the appdaemon package (see tests/conftest.py) and only need
+# requirements-dev.txt.
 appdaemon
-black
-pytest
